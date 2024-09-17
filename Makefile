@@ -6,7 +6,8 @@ DEV_ARGS := --progress=plain
 
 DEV_CFLAGS := --profiling
 DEV_MT_CFLAGS := $(DEV_CFLAGS) $(MT_FLAGS)
-PROD_CFLAGS := -O3 -msimd128
+# PROD_CFLAGS := -O3 -msimd128
+PROD_CFlags := --profiling -msimd128 -avx
 PROD_MT_CFLAGS := $(PROD_CFLAGS) $(MT_FLAGS)
 
 clean:
@@ -20,6 +21,7 @@ build:
 	FFMPEG_ST="$(FFMPEG_ST)" \
 	FFMPEG_MT="$(FFMPEG_MT)" \
 		docker buildx build \
+   --no-cache \
 			--build-arg EXTRA_CFLAGS \
 			--build-arg EXTRA_LDFLAGS \
 			--build-arg FFMPEG_MT \

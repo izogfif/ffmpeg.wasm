@@ -13,6 +13,9 @@ CM_FLAGS=(
   -DENABLE_TOOLS=0                              # disable tools
   -DCONFIG_RUNTIME_CPU_DETECT=0                 # disable cpu detect
   -DCONFIG_WEBM_IO=0                            # disable libwebm support
+  -DENABLE_TESTDATA=0
+  -DCONFIG_MULTITHREAD=0
+  -DCMAKE_BUILD_TYPE=Release
 )
 
 CMBUILD_DIR=cmbuild

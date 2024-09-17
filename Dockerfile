@@ -8,7 +8,7 @@ ARG FFMPEG_ST
 ARG FFMPEG_MT
 ENV INSTALL_DIR=/opt
 # We cannot upgrade to n6.0 as ffmpeg bin only supports multithread at the moment.
-ENV FFMPEG_VERSION=n5.1.4
+ENV FFMPEG_VERSION=n5.1.6
 ENV CFLAGS="-I$INSTALL_DIR/include $CFLAGS $EXTRA_CFLAGS"
 ENV CXXFLAGS="$CFLAGS"
 ENV LDFLAGS="-L$INSTALL_DIR/lib $LDFLAGS $CFLAGS $EXTRA_LDFLAGS"
@@ -132,6 +132,15 @@ RUN git clone --recursive -b $ZIMG_BRANCH https://github.com/sekrit-twc/zimg.git
 COPY build/zimg.sh /src/build.sh
 RUN bash -x /src/build.sh
 
+# Build aom
+FROM emsdk-base AS aom-builder
+ENV AOM_BRANCH=v3.10.0
+#ENV AOM_BRANCH=v1.0.0
+RUN apt-get update && apt-get install -y git
+RUN git clone --recursive --depth 1 --branch $AOM_BRANCH https://aomedia.googlesource.com/aom /src
+COPY build/aom.sh /src/build.sh
+RUN bash -x /src/build.sh
+
 # Base ffmpeg image with dependencies and source code populated.
 FROM emsdk-base AS ffmpeg-base
 RUN embuilder build sdl2 sdl2-mt
@@ -146,6 +155,7 @@ COPY --from=vorbis-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=libwebp-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=libass-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=zimg-builder $INSTALL_DIR $INSTALL_DIR
+COPY --from=aom-builder $INSTALL_DIR $INSTALL_DIR
 
 # Build ffmpeg
 FROM ffmpeg-base AS ffmpeg-builder
@@ -164,7 +174,8 @@ RUN bash -x /src/build.sh \
       --enable-libfreetype \
       --enable-libfribidi \
       --enable-libass \
-      --enable-libzimg 
+      --enable-libzimg \
+      --enable-libaom
 
 # Build ffmpeg.wasm
 FROM ffmpeg-builder AS ffmpeg-wasm-builder
@@ -191,7 +202,8 @@ ENV FFMPEG_LIBS \
       -lfribidi \
       -lharfbuzz \
       -lass \
-      -lzimg
+      -lzimg \
+      -laom
 RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
       ${FFMPEG_LIBS} \
       -o dist/umd/ffmpeg-core.js
