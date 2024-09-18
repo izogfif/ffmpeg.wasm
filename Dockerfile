@@ -181,6 +181,7 @@ RUN bash -x /src/build.sh \
 FROM ffmpeg-builder AS ffmpeg-wasm-builder
 COPY src/bind /src/src/bind
 COPY src/fftools /src/src/fftools
+COPY src/ogv /src/src/ogv
 COPY build/ffmpeg-wasm.sh build.sh
 # libraries to link
 ENV FFMPEG_LIBS \

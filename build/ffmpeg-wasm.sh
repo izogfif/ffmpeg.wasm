@@ -50,7 +50,9 @@ CONF_FLAGS=(
   src/fftools/ffmpeg_mux.c 
   src/fftools/ffmpeg_opt.c 
   src/fftools/opt_common.c 
-  src/fftools/ffprobe.c 
+  src/fftools/ffprobe.c
+  src/ogv/ogv-buffer-queue.c
+  src/ogv/ogv-demuxer-ffmpeg.c
 )
 
 emcc "${CONF_FLAGS[@]}" $@
