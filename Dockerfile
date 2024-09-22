@@ -1,7 +1,10 @@
-# syntax=docker/dockerfile-upstream:master-labs
-
 # Base emsdk image with environment variables.
-FROM emscripten/emsdk:3.1.40 AS emsdk-base
+FROM --platform=linux/amd64 emscripten/emsdk:3.1.40@sha256:c1e807a6e03ac5bd5b37bae2ace3c46c08579e2ddeb951037a3b8dac7067f2cc AS emsdk-base
+#FROM --platform=linux/amd64 emscripten/emsdk:3.1.49@sha256:b35d43d2927648cc4e026aecbdc05c5ffdc8a2b72d7e085e0a836510ff2e0004 AS emsdk-base
+#FROM --platform=linux/amd64 emscripten/emsdk:3.1.45@sha256:e92eed60a35c9b43588e3fa3dae56c4236b4e7462e6ee5276fae6e98f914b4e4 AS emsdk-base
+#FROM  --platform=linux/amd64 emscripten/emsdk:3.1.43@sha256:e856cd59d54fd143366c2df314043d63a1ca23ab43521e0f30f9d9a7ce6d43e0 AS emsdk-base
+#FROM  --platform=linux/amd64 emscripten/emsdk:3.1.42@sha256:9f56c533f4da127ecdff0ccca88e7ced2d26b8e9670ed1b90e5fde3207d6e4b9 AS emsdk-base
+#FROM  --platform=linux/amd64 emscripten/emsdk:3.1.41@sha256:270ed8b0045b14593817e0c2d751a04ff1da2aea70e17e56a3f36baab6b470e1 AS emsdk-base
 ARG EXTRA_CFLAGS
 ARG EXTRA_LDFLAGS
 ARG FFMPEG_ST
@@ -207,11 +210,11 @@ ENV FFMPEG_LIBS \
       -laom
 RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
       ${FFMPEG_LIBS} \
-      -o dist/umd/ffmpeg-core.js
+      -o dist/umd/ogv-demuxer-ogg.js
 RUN mkdir -p /src/dist/esm && bash -x /src/build.sh \
       ${FFMPEG_LIBS} \
       -sEXPORT_ES6 \
-      -o dist/esm/ffmpeg-core.js
+      -o dist/esm/ogv-demuxer-ogg.js
 
 # Export ffmpeg-core.wasm to dist/, use `docker buildx build -o . .` to get assets
 FROM scratch AS exportor

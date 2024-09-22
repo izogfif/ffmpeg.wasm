@@ -1,3 +1,8 @@
+// START OF IMPORT FROM ogv.js/src/js/modules/ogv-module-pre.js
+/* global Module:true */
+var options = Module;
+// END OF IMPORT FROM ogv.js
+
 /**
  * Constants
  */

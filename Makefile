@@ -21,6 +21,7 @@ build:
 	FFMPEG_ST="$(FFMPEG_ST)" \
 	FFMPEG_MT="$(FFMPEG_MT)" \
 		docker buildx build \
+			--no-cache-filter=ffmpeg-wasm-builder,exportor \
 			--build-arg EXTRA_CFLAGS \
 			--build-arg EXTRA_LDFLAGS \
 			--build-arg FFMPEG_MT \
@@ -28,6 +29,7 @@ build:
 			-o ./packages/core$(PKG_SUFFIX) \
 			$(EXTRA_ARGS) \
 			.
+
 #   --no-cache \
 
 build-st:
