@@ -41,8 +41,8 @@ CONF_FLAGS=(
   -sEXPORT_NAME="$EXPORT_NAME"             # required in browser env, so that user can access this module from window object
 #  -sEXPORTED_FUNCTIONS=$(node src/bind/ffmpeg/export.js) # exported functions
   -sEXPORTED_FUNCTIONS=$(node src/ogv/js/modules/ogv-demuxer-exports.js)
-  # -sEXPORTED_RUNTIME_METHODS=$(node src/bind/ffmpeg/export-runtime.js) # exported built-in functions
-  # -lworkerfs.js
+  -sEXPORTED_RUNTIME_METHODS=$(node src/bind/ffmpeg/export-runtime.js) # exported built-in functions
+  -lworkerfs.js
   --js-library src/ogv/js/modules/ogv-demuxer-callbacks.js
   --pre-js src/ogv/js/modules/ogv-module-pre.js
   --post-js src/ogv/js/modules/ogv-demuxer.js

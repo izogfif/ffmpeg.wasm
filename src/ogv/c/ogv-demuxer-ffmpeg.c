@@ -48,6 +48,7 @@ static int retry_count = 0;
 const int MAX_RETRY_COUNT = 3;
 static AVRational videoStreamTimeBase = {1, 1};
 static AVRational audioStreamTimeBase = {1, 1};
+static char *fileName = NULL;
 
 enum AppState
 {
@@ -125,17 +126,34 @@ static int64_t seekCallback(void *userdata, int64_t offset, int whence)
  if (seekRet)
  {
 		logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d\n", seekRet);
+		bq_flush(bufferQueue);
+		bufferQueue->pos = pos;
+		ogvjs_callback_seek(pos);
 		return -1;
  }
  else
  {
+		logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
 		return 0;
  }
 }
 
-void ogv_demuxer_init(void)
+void ogv_demuxer_init(const char *inputFilePath, int len)
 {
  appState = STATE_BEGIN;
+ if (fileName)
+ {
+		free(fileName);
+		fileName = NULL;
+ }
+ if (len)
+ {
+		fileName = malloc(len + 1);
+		memset(fileName, 0, len + 1);
+		memcpy(fileName, inputFilePath, len);
+		logCallback("FFmpeg demuxer: ogv_demuxer_init with fileName %s\n", fileName);
+ }
+
  bufferQueue = bq_init();
 
  pFormatContext = avformat_alloc_context();
@@ -153,15 +171,17 @@ void ogv_demuxer_init(void)
  avio_ctx = avio_alloc_context(
 					avio_ctx_buffer, avio_ctx_buffer_size,
 					0, bufferQueue, &readCallback, NULL,
-					NULL // &seekCallback
- );
+					&seekCallback);
  if (!avio_ctx)
  {
 		logCallback("FFmpeg demuxer error: could not allocate memory for AVIO Context\n");
 		return;
  }
- pFormatContext->pb = avio_ctx;
- pFormatContext->flags = AVFMT_FLAG_CUSTOM_IO;
+ if (!fileName)
+ {
+		pFormatContext->pb = avio_ctx;
+		pFormatContext->flags = AVFMT_FLAG_CUSTOM_IO;
+ }
 }
 
 // static int64_t tellCallback(void *userdata)
@@ -177,7 +197,7 @@ static int readyForNextPacket(void)
 static int processBegin(void)
 {
  logCallback("FFmpeg demuxer: processBegin is being called\n");
- const int openInputRes = avformat_open_input(&pFormatContext, NULL, NULL, NULL);
+ const int openInputRes = avformat_open_input(&pFormatContext, fileName, NULL, NULL);
  if (openInputRes != 0)
  {
 		logCallback("FFmpeg demuxer error: could not open input. Error code: %d (%s)\n", openInputRes, av_err2str(openInputRes));
@@ -564,6 +584,7 @@ static int processSeeking(void)
 
 void ogv_demuxer_receive_input(const char *buffer, int bufsize)
 {
+ logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called\n");
  if (bufsize > 0)
  {
 		bq_append(bufferQueue, buffer, bufsize);

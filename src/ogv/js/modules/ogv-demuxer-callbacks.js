@@ -103,10 +103,9 @@ mergeInto(LibraryManager.library, {
     return Module["audioPackets"].length > 0 ? 1 : 0;
   },
 
-  ogvjs_callback_seek: function (offsetLow, offsetHigh) {
-    var offset = offsetLow + offsetHigh * 0x100000000;
-    if (Module["onseek"]) {
-      Module["onseek"](offset);
+  ogvjs_callback_seek: function (offset) {
+    if (Module['onseek']) {
+      Module['onseek'](offset);
     }
-  },
+  }
 });
