@@ -129,7 +129,7 @@ Object.defineProperty(Module, "seekable", {
 
 // - public methods
 
-Module["init"] = function (file) {
+Module["init"] = function (fileSize, file) {
 	time(function () {
 		let fileName = '';
 		if (file) {
@@ -141,10 +141,15 @@ Module["init"] = function (file) {
 			fileName = `${folderName}/${fileWithProperNameAndExt.name}`;
 		}
 		var urlBytes = new TextEncoder().encode(fileName);
-		var len = urlBytes.byteLength;
+		var len = 8 + urlBytes.byteLength;
 		var buffer = reallocInputBuffer(len);
 		var dest = new Uint8Array(wasmMemory.buffer, buffer, len);
-		dest.set(urlBytes);
+		dest.set(urlBytes, 8);
+
+		const dv = new DataView(new ArrayBuffer(8), 0);
+		dv.setBigUint64(0, `${fileSize}`, true);
+		dest.set(new Uint8Array(dv.buffer), 0);
+
 		Module["_ogv_demuxer_init"](buffer, len);
 	});
 };

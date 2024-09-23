@@ -46,6 +46,7 @@ CONF_FLAGS=(
   --js-library src/ogv/js/modules/ogv-demuxer-callbacks.js
   --pre-js src/ogv/js/modules/ogv-module-pre.js
   --post-js src/ogv/js/modules/ogv-demuxer.js
+  -sASYNCIFY
   # ffmpeg source code
   # src/fftools/cmdutils.c 
   # src/fftools/ffmpeg.c 

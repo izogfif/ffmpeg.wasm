@@ -15,7 +15,7 @@ mergeInto(LibraryManager.library, {
     picX,
     picY,
     displayWidth,
-    displayHeight,
+    displayHeight
   ) {
     Module["videoFormat"] = {
       width: frameWidth,
@@ -72,8 +72,9 @@ mergeInto(LibraryManager.library, {
     len,
     frameTimestamp,
     keyframeTimestamp,
-    isKeyframe,
+    isKeyframe
   ) {
+    // console.log(`ogvjs_callback_video_packet: frameTimestamp=${frameTimestamp}, keyframeTimestamp=${keyframeTimestamp}`)
     Module["videoPackets"].push({
       data: wasmMemory.buffer.slice(buffer, buffer + len),
       timestamp: frameTimestamp,
@@ -86,7 +87,7 @@ mergeInto(LibraryManager.library, {
     buffer,
     len,
     audioTimestamp,
-    discardPadding,
+    discardPadding
   ) {
     Module["audioPackets"].push({
       data: wasmMemory.buffer.slice(buffer, buffer + len),
@@ -103,9 +104,10 @@ mergeInto(LibraryManager.library, {
     return Module["audioPackets"].length > 0 ? 1 : 0;
   },
 
-  ogvjs_callback_seek: function (offset) {
-    if (Module['onseek']) {
-      Module['onseek'](offset);
+  ogvjs_callback_seek: function (offsetLow, offsetHigh) {
+    var offset = offsetLow + offsetHigh * 0x100000000;
+    if (Module["onseek"]) {
+      Module["onseek"](offset);
     }
-  }
+  },
 });

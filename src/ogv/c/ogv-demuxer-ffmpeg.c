@@ -17,6 +17,7 @@
 #include "ogv-demuxer.h"
 #include "ogv-buffer-queue.h"
 #include "ffmpeg_helper.h"
+#include <emscripten.h>
 
 static BufferQueue *bufferQueue;
 
@@ -49,6 +50,7 @@ const int MAX_RETRY_COUNT = 3;
 static AVRational videoStreamTimeBase = {1, 1};
 static AVRational audioStreamTimeBase = {1, 1};
 static char *fileName = NULL;
+static uint64_t fileSize = 0;
 
 enum AppState
 {
@@ -82,15 +84,19 @@ static void logCallback(char const *format, ...)
 
 static int readCallback(void *userdata, uint8_t *buffer, int length)
 {
- int64_t data_available = bq_headroom((BufferQueue *)userdata);
- logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
- int64_t can_read_bytes = FFMIN(data_available, length);
- if (!can_read_bytes)
+ int64_t can_read_bytes = 0;
+ while (1)
  {
-		// End of stream. Demuxer can recover from this if more data comes in!
-		return AVERROR(EAGAIN);
+		int64_t data_available = bq_headroom((BufferQueue *)userdata);
+		logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
+		can_read_bytes = FFMIN(data_available, length);
+	 int64_t	pos = ((BufferQueue *)userdata)->pos;
+		if (can_read_bytes || fileSize - pos)
+		{
+			break;
+		}
+		emscripten_sleep(100);
  }
-
  if (bq_read((BufferQueue *)userdata, buffer, can_read_bytes))
  {
 		// error
@@ -116,41 +122,56 @@ static int64_t seekCallback(void *userdata, int64_t offset, int whence)
  case SEEK_CUR:
 		pos = ((BufferQueue *)userdata)->pos + offset;
 		break;
- case SEEK_END:				// not implemented
- case AVSEEK_SIZE: // not implemented
+ case AVSEEK_SIZE:
+ {
+		return fileSize;
+ }
+ case SEEK_END: // not implemented
  case AVSEEK_FORCE:
  default:
 		return -1;
  }
- const int seekRet = bq_seek((BufferQueue *)userdata, pos);
- if (seekRet)
+ while (1)
  {
-		logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d\n", seekRet);
-		bq_flush(bufferQueue);
-		bufferQueue->pos = pos;
-		ogvjs_callback_seek(pos);
-		return -1;
- }
- else
- {
-		logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
-		return 0;
+		const int seekRet = bq_seek((BufferQueue *)userdata, pos);
+		int64_t data_available = seekRet ? 0 : bq_headroom((BufferQueue *)userdata);
+		int64_t bytes_until_end = fileSize - pos;
+		if (seekRet || data_available < FFMIN(bytes_until_end, avio_ctx_buffer_size))
+		{
+			logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d. Bytes until end: %lld, data available: %lld\n", seekRet, bytes_until_end, data_available);
+			bq_flush(bufferQueue);
+			bufferQueue->pos = pos;
+			uint32_t lower = pos & 0xffffffff;
+			uint32_t higher = pos >> 32;
+			ogvjs_callback_seek(lower, higher);
+			emscripten_sleep(100);
+		}
+		else
+		{
+			logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
+			return pos;
+		}
  }
 }
 
-void ogv_demuxer_init(const char *inputFilePath, int len)
+void ogv_demuxer_init(const char *fileSizeAndPath, int len)
 {
+ const int fileSizeSize = 8;
+ memcpy(&fileSize, fileSizeAndPath, fileSizeSize);
+ logCallback("ogv_demuxer_init with file size: %lld (fileSizeAndPath has length %d)\n", fileSize, len);
  appState = STATE_BEGIN;
  if (fileName)
  {
 		free(fileName);
 		fileName = NULL;
  }
- if (len)
+ int fileNameLength = len - fileSizeSize;
+ const char *inputFilePath = fileSizeAndPath + fileSizeSize;
+ if (fileNameLength)
  {
-		fileName = malloc(len + 1);
-		memset(fileName, 0, len + 1);
-		memcpy(fileName, inputFilePath, len);
+		fileName = malloc(fileNameLength + 1);
+		memset(fileName, 0, fileNameLength + 1);
+		memcpy(fileName, inputFilePath, fileNameLength);
 		logCallback("FFmpeg demuxer: ogv_demuxer_init with fileName %s\n", fileName);
  }
 
