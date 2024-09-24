@@ -51,6 +51,8 @@ static AVRational videoStreamTimeBase = {1, 1};
 static AVRational audioStreamTimeBase = {1, 1};
 static char *fileName = NULL;
 static uint64_t fileSize = 0;
+static int minBufSize = 1 * 1024 * 1024;
+static int waitingForInput = 0;
 
 enum CallbackState
 {
@@ -91,6 +93,15 @@ static void logCallback(char const *format, ...)
  }
 }
 
+void requestSeek(int64_t pos)
+{
+ bq_flush(bufferQueue);
+ bufferQueue->pos = pos;
+ uint32_t lower = pos & 0xffffffff;
+ uint32_t higher = pos >> 32;
+ ogvjs_callback_seek(lower, higher);
+}
+
 static int readCallback(void *userdata, uint8_t *buffer, int length)
 {
  callbackState = CALLBACK_STATE_IN_READ_CALLBACK;
@@ -107,7 +118,14 @@ static int readCallback(void *userdata, uint8_t *buffer, int length)
 		{
 			break;
 		}
-		logCallback("readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos, pos, fileSize);
+		logCallback(
+						"readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill: %d.\n",
+						length, (int)data_available, fileSize - pos, pos, fileSize, waitingForInput);
+		if (!waitingForInput)
+		{
+			waitingForInput = 1;
+			requestSeek(pos);
+		}
 		emscripten_sleep(100);
  }
  if (!can_read_bytes)
@@ -168,11 +186,7 @@ static int64_t seekCallback(void *userdata, int64_t offset, int whence)
 		if (seekRet || data_available < FFMIN(bytes_until_end, avio_ctx_buffer_size))
 		{
 			logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d. Bytes until end: %lld, data available: %lld\n", seekRet, bytes_until_end, data_available);
-			bq_flush(bufferQueue);
-			bufferQueue->pos = pos;
-			uint32_t lower = pos & 0xffffffff;
-			uint32_t higher = pos >> 32;
-			ogvjs_callback_seek(lower, higher);
+			requestSeek(pos);
 			emscripten_sleep(100);
 		}
 		else
@@ -284,7 +298,7 @@ static int processBegin(void)
 
 		if (pLocalCodec == NULL)
 		{
-			logCallback("FFmpeg demuxer error: unsupported codec!\n");
+			logCallback("FFmpeg demuxer error: unsupported codec ID %d!\n", pLocalCodecParameters->codec_id);
 			// In this example if the codec is not found we just skip it
 			continue;
 		}
@@ -371,7 +385,10 @@ static int processBegin(void)
 		}
 		if (pVideoCodecParameters->format != AV_PIX_FMT_YUV420P)
 		{
-			logCallback("Video pixel format is %d, initializing scaling context\n", pVideoCodecParameters->format);
+			logCallback(
+							"Video pixel format is %d, need %d, initializing scaling context\n",
+							pVideoCodecParameters->format,
+							AV_PIX_FMT_YUV420P);
 			// Need to convert each input video frame to yuv420p format using sws_scale.
 			// Here we're initializing conversion context
 			ptImgConvertCtx = sws_getContext(
@@ -635,11 +652,13 @@ static int processSeeking(void)
 
 void ogv_demuxer_receive_input(const char *buffer, int bufsize)
 {
- logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called\n");
+ logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called. bufsize: %d\n", bufsize);
  if (bufsize > 0)
  {
+		waitingForInput = 0;
 		bq_append(bufferQueue, buffer, bufsize);
  }
+ logCallback("FFmpeg demuxer: ogv_demuxer_receive_input: exited.\n");
 }
 
 int ogv_demuxer_process(void)
@@ -648,9 +667,9 @@ int ogv_demuxer_process(void)
 
  const int64_t data_available = bq_headroom(bufferQueue);
  const int64_t bytes_until_end = fileSize - bufferQueue->pos;
- logCallback("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld\n", data_available, bytes_until_end);
+ logCallback("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
 
- if (data_available < 1024 * 1024 && bytes_until_end > data_available)
+ if (data_available < minBufSize && bytes_until_end > data_available)
  {
 		// Buffer at least 1 megabyte of data first
 		if (data_available != prev_data_available)

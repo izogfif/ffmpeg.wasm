@@ -105,7 +105,7 @@ mergeInto(LibraryManager.library, {
   },
 
   ogvjs_callback_seek: function (offsetLow, offsetHigh) {
-    var offset = offsetLow + offsetHigh * 0x100000000;
+    var offset = (offsetLow >>> 0) + (offsetHigh >>> 0) * 0x100000000;
     if (Module["onseek"]) {
       Module["onseek"](offset);
     }

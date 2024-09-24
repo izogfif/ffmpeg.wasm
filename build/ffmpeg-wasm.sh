@@ -47,6 +47,7 @@ CONF_FLAGS=(
   --pre-js src/ogv/js/modules/ogv-module-pre.js
   --post-js src/ogv/js/modules/ogv-demuxer.js
   -sASYNCIFY
+  -sASYNCIFY_STACK_SIZE=8192
   # ffmpeg source code
   # src/fftools/cmdutils.c 
   # src/fftools/ffmpeg.c 
