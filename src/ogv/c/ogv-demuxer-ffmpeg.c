@@ -52,6 +52,15 @@ static AVRational audioStreamTimeBase = {1, 1};
 static char *fileName = NULL;
 static uint64_t fileSize = 0;
 
+enum CallbackState
+{
+ CALLBACK_STATE_NOT_IN_CALLBACK,
+ CALLBACK_STATE_IN_SEEK_CALLBACK,
+ CALLBACK_STATE_IN_READ_CALLBACK,
+};
+
+static enum CallbackState callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
+
 enum AppState
 {
  STATE_BEGIN,
@@ -84,53 +93,73 @@ static void logCallback(char const *format, ...)
 
 static int readCallback(void *userdata, uint8_t *buffer, int length)
 {
+ callbackState = CALLBACK_STATE_IN_READ_CALLBACK;
  int64_t can_read_bytes = 0;
+ int64_t pos = -1;
+ int64_t data_available = -1;
  while (1)
  {
-		int64_t data_available = bq_headroom((BufferQueue *)userdata);
+		data_available = bq_headroom((BufferQueue *)userdata);
 		logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
 		can_read_bytes = FFMIN(data_available, length);
-	 int64_t	pos = ((BufferQueue *)userdata)->pos;
-		if (can_read_bytes || fileSize - pos)
+		pos = ((BufferQueue *)userdata)->pos;
+		if (can_read_bytes || !(fileSize - pos))
 		{
 			break;
 		}
+		logCallback("readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos, pos, fileSize);
 		emscripten_sleep(100);
+ }
+ if (!can_read_bytes)
+ {
+		logCallback("readCallback: end of file reached. Bytes requested: %d, available: %d, bytes until end of file: %lld. Reporting EOF.\n", length, (int)data_available, fileSize - pos);
+		callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
+		return AVERROR_EOF;
  }
  if (bq_read((BufferQueue *)userdata, buffer, can_read_bytes))
  {
-		// error
+		logCallback("readCallback: bq_red failed. Bytes requested: %d, available: %d, bytes until end of file: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos);
+		callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 		return AVERROR_EOF;
  }
  else
  {
 		// success
 		logCallback("readCallback: %d bytes read\n", (int)can_read_bytes);
+		callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 		return can_read_bytes;
  }
 }
 
 static int64_t seekCallback(void *userdata, int64_t offset, int whence)
 {
+ callbackState = CALLBACK_STATE_IN_SEEK_CALLBACK;
  logCallback("seekCallback is being called: offset=%lld, whence=%d\n", offset, whence);
  int64_t pos;
  switch (whence)
  {
  case SEEK_SET:
+ {
 		pos = offset;
 		break;
+ }
  case SEEK_CUR:
+ {
 		pos = ((BufferQueue *)userdata)->pos + offset;
 		break;
+ }
  case AVSEEK_SIZE:
  {
+		callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 		return fileSize;
  }
  case SEEK_END: // not implemented
  case AVSEEK_FORCE:
  default:
+		callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 		return -1;
  }
+ pos = FFMIN(pos, fileSize);
  while (1)
  {
 		const int seekRet = bq_seek((BufferQueue *)userdata, pos);
@@ -149,6 +178,7 @@ static int64_t seekCallback(void *userdata, int64_t offset, int whence)
 		else
 		{
 			logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
+			callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 			return pos;
 		}
  }
@@ -617,9 +647,10 @@ int ogv_demuxer_process(void)
  logCallback("FFmpeg demuxer: ogv_demuxer_process is being called\n");
 
  const int64_t data_available = bq_headroom(bufferQueue);
- logCallback("FFmpeg demuxer: buffer got %lld bytes of data\n", data_available);
+ const int64_t bytes_until_end = fileSize - bufferQueue->pos;
+ logCallback("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld\n", data_available, bytes_until_end);
 
- if (data_available < 1024 * 1024)
+ if (data_available < 1024 * 1024 && bytes_until_end > data_available)
  {
 		// Buffer at least 1 megabyte of data first
 		if (data_available != prev_data_available)
@@ -639,6 +670,11 @@ int ogv_demuxer_process(void)
 
  prev_data_available = data_available;
  retry_count = 0;
+ if (callbackState != CALLBACK_STATE_NOT_IN_CALLBACK)
+ {
+		logCallback("FFmpeg demuxer: currently in callback: %d\n", callbackState);
+		return 0;
+ }
  switch (appState)
  {
  case STATE_BEGIN:
