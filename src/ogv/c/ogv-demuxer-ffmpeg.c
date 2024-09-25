@@ -438,7 +438,7 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
  {
 		return pDecodedFrame;
  }
- logCallback("FFmpeg demuxer: calling sws_scale\n");
+ logCallback("FFmpeg demuxer: av_frame_alloc\n");
 
  AVFrame *pConvertedFrame = av_frame_alloc();
  if (!pConvertedFrame)
@@ -473,6 +473,7 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
 		av_frame_free(&pDecodedFrame);
 		return NULL;
  }
+ logCallback("FFmpeg demuxer: sws_scale returned %d\n", scaleResult);
  av_frame_free(&pDecodedFrame);
  return pConvertedFrame;
 }
@@ -527,9 +528,11 @@ void onDecodedFrame(AVFrame *pDecodedFrame, AVRational timeBase)
 
 void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext, AVRational streamTimeBase)
 {
+ logCallback("FFmpeg demuxer: calling avcodec_send_packet\n");
  // Supply raw packet data as input to a decoder
  // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga58bc4bf1e0ac59e27362597e467efff3
  int response = avcodec_send_packet(pCodecContext, pPacket);
+ logCallback("FFmpeg demuxer: avcodec_send_packet returned %d (%s)\n", response, av_err2str(response));
 
  if (response < 0)
  {
@@ -546,6 +549,7 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext, AVRatio
 			return;
 		}
 
+		logCallback("FFmpeg demuxer: calling avcodec_receive_frame\n");
 		response = avcodec_receive_frame(pCodecContext, pDecodedFrame);
 		logCallback("FFmpeg demuxer: avcodec_receive_frame returned %d (%s)\n", response, av_err2str(response));
 		if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
