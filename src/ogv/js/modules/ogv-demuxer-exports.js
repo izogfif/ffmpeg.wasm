@@ -11,6 +11,6 @@ const EXPORTED_FUNCTIONS = [
   "_ogv_demuxer_keypoint_offset",
   "_ogv_demuxer_seek_to_keypoint",
   "_ogv_demuxer_flush"
-]
+];
 
 console.log(EXPORTED_FUNCTIONS.join(","));

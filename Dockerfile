@@ -210,7 +210,38 @@ RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
       ${FFMPEG_LIBS} \
       -o dist/umd/ogv-demuxer-ogg.js
 
+# Build ogv-decoder-video
+FROM ffmpeg-builder AS ogv-decoder-video-builder
+COPY src/ogv /src/src/ogv
+COPY build/ogv-decoder-video.sh build.sh
+# libraries to link
+ENV FFMPEG_LIBS \
+      -lx264 \
+      -lx265 \
+      -lvpx \
+      -lmp3lame \
+      -logg \
+      -ltheora \
+      -lvorbis \
+      -lvorbisenc \
+      -lvorbisfile \
+      -lopus \
+      -lz \
+      -lwebpmux \
+      -lwebp \
+      -lsharpyuv \
+      -lfreetype \
+      -lfribidi \
+      -lharfbuzz \
+      -lass \
+      -lzimg \
+      -laom
+RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
+      ${FFMPEG_LIBS} \
+      -o dist/umd/ogv-decoder-video-theora.js
+
       
 # Export ffmpeg-core.wasm to dist/, use `docker buildx build -o . .` to get assets
 FROM scratch AS exportor
 COPY --from=ogv-demuxer-builder /src/dist /dist
+COPY --from=ogv-decoder-video-builder /src/dist /dist
