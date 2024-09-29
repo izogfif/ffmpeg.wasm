@@ -467,7 +467,8 @@ static int processBegin(void)
     {
       copy_int64(&pVCPBuf, pVideoCodecParameters->ch_layout.u.mask, &codecParamsSize);
     }
-    if (allocatedSize != codecParamsSize) {
+    if (allocatedSize != codecParamsSize)
+    {
       logCallback("Allocated and written data size differs! Allocated: %d, written: %d\n", allocatedSize, codecParamsSize);
     }
 
@@ -518,14 +519,15 @@ static int processDecoding(void)
   // if it's the video stream
   if (hasVideo && pPacket->stream_index == videoTrack)
   {
-    logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld\n", videoTrack, pPacket->pts);
+    float frameTimestamp = pPacket->pts * av_q2d(videoStreamTimeBase);
+    logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
+                videoTrack, pPacket->pts, frameTimestamp, pPacket->size);
     ogvjs_callback_video_packet(
-      pPacket->data,
-      pPacket->size,
-      pPacket->pts * av_q2d(videoStreamTimeBase),
-      -1, 
-      0
-    );
+        pPacket->data,
+        pPacket->size,
+        frameTimestamp,
+        -1,
+        0);
     av_packet_unref(pPacket);
     return 1;
   }

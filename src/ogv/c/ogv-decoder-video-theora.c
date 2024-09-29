@@ -36,23 +36,20 @@ void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
     logCallback("failed to allocated memory for AVCodecContext\n");
     return;
   }
+
   // Fill the codec context based on the values from the supplied codec parameters
-  // https://ffmpeg.org/doxygen/trunk/group__lavc__core.html#gac7b282f51540ca7a99416a3ba6ee0d16
   if (avcodec_parameters_to_context(pVideoCodecContext, pCodecParams) < 0)
   {
     logCallback("failed to copy codec params to codec context\n");
     return;
   }
 
-  // Initialize the AVCodecContext to use the given AVCodec.
-  // https://ffmpeg.org/doxygen/trunk/group__lavc__core.html#ga11f785a188d7d9df71621001465b0f1d
   if (avcodec_open2(pVideoCodecContext, pVideoCodec, NULL) < 0)
   {
     logCallback("failed to open codec through avcodec_open2\n");
     return;
   }
 
-  // https://ffmpeg.org/doxygen/trunk/structAVPacket.html
   pPacket = av_packet_alloc();
   if (!pPacket)
   {
@@ -107,17 +104,17 @@ int ogv_video_decoder_process_header(const char *data, size_t data_len)
 
 AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
 {
-  logCallback("FFmpeg demuxer: getConvertedFrame is being called\n");
+  logCallback("ogv-decoder-video-theora: getConvertedFrame is being called\n");
   if (pDecodedFrame->format == AV_PIX_FMT_YUV420P)
   {
     return pDecodedFrame;
   }
-  logCallback("FFmpeg demuxer: av_frame_alloc\n");
+  logCallback("ogv-decoder-video-theora: av_frame_alloc\n");
 
   AVFrame *pConvertedFrame = av_frame_alloc();
   if (!pConvertedFrame)
   {
-    logCallback("FFmpeg demuxer: failed to create frame for conversion");
+    logCallback("ogv-decoder-video-theora: failed to create frame for conversion");
     av_frame_free(&pDecodedFrame);
     return NULL;
   }
@@ -128,11 +125,11 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
   int get_buffer_res = av_frame_get_buffer(pConvertedFrame, 0);
   if (get_buffer_res)
   {
-    logCallback("FFmpeg demuxer: failed to allocate buffer for converted frame\n");
+    logCallback("ogv-decoder-video-theora: failed to allocate buffer for converted frame\n");
     av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logCallback("FFmpeg demuxer: calling sws_scale\n");
+  logCallback("ogv-decoder-video-theora: calling sws_scale\n");
   int scaleResult = sws_scale(
       pSwsContext,
       (const uint8_t *const *)pDecodedFrame->data,
@@ -143,28 +140,31 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
       pConvertedFrame->linesize);
   if (scaleResult != pConvertedFrame->height)
   {
-    logCallback("FFmpeg demuxer error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
+    logCallback("ogv-decoder-video-theora error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
     av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logCallback("FFmpeg demuxer: sws_scale returned %d\n", scaleResult);
+  logCallback("ogv-decoder-video-theora: sws_scale returned %d\n", scaleResult);
   av_frame_free(&pDecodedFrame);
   return pConvertedFrame;
 }
 
 void onDecodedFrame(AVFrame *pDecodedFrame)
 {
-  logCallback("FFmpeg demuxer: onDecodedFrame is being called\n");
+  logCallback("ogv-decoder-video-theora: onDecodedFrame is being called\n");
   if (!pDecodedFrame)
   {
-    logCallback("FFmpeg demuxer: pDecodedFrame is NULL\n");
+    logCallback("ogv-decoder-video-theora: pDecodedFrame is NULL\n");
     return;
   }
   AVFrame *pConvertedFrame = getConvertedFrame(pDecodedFrame);
-  printf("ogv-decoder-video-theora: width=%d, height=%d, \
+  logCallback("ogv-decoder-video-theora: calling ogvjs_callback_frame width=%d, height=%d, \
 	 linesize0=%d, linesize1=%d, linesize2=%d\n",
-         pConvertedFrame->width, pConvertedFrame->height,
-         pConvertedFrame->linesize[0], pConvertedFrame->linesize[1], pConvertedFrame->linesize[2]);
+              pConvertedFrame->width,
+              pConvertedFrame->height,
+              pConvertedFrame->linesize[0],
+              pConvertedFrame->linesize[1],
+              pConvertedFrame->linesize[2]);
 
   ogvjs_callback_frame(
       pConvertedFrame->data[0], pConvertedFrame->linesize[0],
@@ -181,15 +181,15 @@ void onDecodedFrame(AVFrame *pDecodedFrame)
 
 void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
 {
-  logCallback("FFmpeg demuxer: calling avcodec_send_packet\n");
+  logCallback("ogv-decoder-video-theora: calling avcodec_send_packet\n");
   // Supply raw packet data as input to a decoder
   // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga58bc4bf1e0ac59e27362597e467efff3
   int response = avcodec_send_packet(pCodecContext, pPacket);
-  logCallback("FFmpeg demuxer: avcodec_send_packet returned %d (%s)\n", response, av_err2str(response));
+  logCallback("ogv-decoder-video-theora: avcodec_send_packet returned %d (%s)\n", response, av_err2str(response));
 
   if (response < 0)
   {
-    logCallback("FFmpeg demuxer error: while sending a packet to the decoder: %s", av_err2str(response));
+    logCallback("ogv-decoder-video-theora error: while sending a packet to the decoder: %s", av_err2str(response));
   }
   while (response >= 0)
   {
@@ -198,21 +198,21 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
     AVFrame *pDecodedFrame = av_frame_alloc();
     if (!pDecodedFrame)
     {
-      logCallback("FFmpeg demuxer error: could not allocate video frame\n");
+      logCallback("ogv-decoder-video-theora error: could not allocate video frame\n");
       return;
     }
 
-    logCallback("FFmpeg demuxer: calling avcodec_receive_frame\n");
+    logCallback("ogv-decoder-video-theora: calling avcodec_receive_frame\n");
     response = avcodec_receive_frame(pCodecContext, pDecodedFrame);
-    logCallback("FFmpeg demuxer: avcodec_receive_frame returned %d (%s)\n", response, av_err2str(response));
+    logCallback("ogv-decoder-video-theora: avcodec_receive_frame returned %d (%s)\n", response, av_err2str(response));
     if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
     {
-      logCallback("FFmpeg demuxer error: avcodec_receive_frame needs more data %s\n", av_err2str(response));
+      logCallback("ogv-decoder-video-theora error: avcodec_receive_frame needs more data %s\n", av_err2str(response));
       return;
     }
     else if (response < 0)
     {
-      logCallback("FFmpeg demuxer error: while receiving a frame from the decoder: %s\n", av_err2str(response));
+      logCallback("ogv-decoder-video-theora error: while receiving a frame from the decoder: %s\n", av_err2str(response));
       return;
     }
 
@@ -229,7 +229,7 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
           pDecodedFrame->coded_picture_number);
       if (!pDecodedFrame)
       {
-        logCallback("FFmpeg demuxer error: something is wrong: %d", (int)pDecodedFrame);
+        logCallback("ogv-decoder-video-theora error: something is wrong: %d", (int)pDecodedFrame);
       }
       onDecodedFrame(pDecodedFrame);
     }
