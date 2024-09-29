@@ -6,9 +6,8 @@
 #include <limits.h>
 #include <stdio.h>
 #include <libavcodec/avcodec.h>
-#include <libswscale/swscale.h>
 #include <libavutil/pixfmt.h>
-
+#include <libswscale/swscale.h>
 #include "ogv-decoder-video.h"
 #include "decoder-helper.h"
 
@@ -16,7 +15,7 @@ static int display_width = 0;
 static int display_height = 0;
 static AVCodecContext *pVideoCodecContext = NULL;
 static AVPacket *pPacket = NULL;
-static struct SwsContext *ptImgConvertCtx = NULL;
+static struct SwsContext *pSwsContext = NULL;
 static AVFrame *pConvertedFrame = NULL;
 static AVCodecParameters *pCodecParams = NULL;
 
@@ -70,7 +69,7 @@ void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
         AV_PIX_FMT_YUV420P);
     // Need to convert each input video frame to yuv420p format using sws_scale.
     // Here we're initializing conversion context
-    ptImgConvertCtx = sws_getContext(
+    pSwsContext = sws_getContext(
         pCodecParams->width, pCodecParams->height,
         pCodecParams->format,
         pCodecParams->width, pCodecParams->height,
@@ -88,6 +87,11 @@ void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
       return;
     }
   }
+  pPacket = av_packet_alloc();
+  if (!pPacket)
+  {
+    logCallback("Failed to allocate memory for video packet");
+  }
 }
 
 int ogv_video_decoder_async(void)
@@ -101,42 +105,157 @@ int ogv_video_decoder_process_header(const char *data, size_t data_len)
   return 1;
 }
 
+AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
+{
+  logCallback("FFmpeg demuxer: getConvertedFrame is being called\n");
+  if (pDecodedFrame->format == AV_PIX_FMT_YUV420P)
+  {
+    return pDecodedFrame;
+  }
+  logCallback("FFmpeg demuxer: av_frame_alloc\n");
+
+  AVFrame *pConvertedFrame = av_frame_alloc();
+  if (!pConvertedFrame)
+  {
+    logCallback("FFmpeg demuxer: failed to create frame for conversion");
+    av_frame_free(&pDecodedFrame);
+    return NULL;
+  }
+  pConvertedFrame->width = pDecodedFrame->width;
+  pConvertedFrame->height = pDecodedFrame->height;
+  pConvertedFrame->format = AV_PIX_FMT_YUV420P;
+  pConvertedFrame->pts = pDecodedFrame->pts;
+  int get_buffer_res = av_frame_get_buffer(pConvertedFrame, 0);
+  if (get_buffer_res)
+  {
+    logCallback("FFmpeg demuxer: failed to allocate buffer for converted frame\n");
+    av_frame_free(&pDecodedFrame);
+    return NULL;
+  }
+  logCallback("FFmpeg demuxer: calling sws_scale\n");
+  int scaleResult = sws_scale(
+      pSwsContext,
+      (const uint8_t *const *)pDecodedFrame->data,
+      pDecodedFrame->linesize,
+      0,
+      pDecodedFrame->height,
+      (uint8_t *const *)pConvertedFrame->data,
+      pConvertedFrame->linesize);
+  if (scaleResult != pConvertedFrame->height)
+  {
+    logCallback("FFmpeg demuxer error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
+    av_frame_free(&pDecodedFrame);
+    return NULL;
+  }
+  logCallback("FFmpeg demuxer: sws_scale returned %d\n", scaleResult);
+  av_frame_free(&pDecodedFrame);
+  return pConvertedFrame;
+}
+
+void onDecodedFrame(AVFrame *pDecodedFrame)
+{
+  logCallback("FFmpeg demuxer: onDecodedFrame is being called\n");
+  if (!pDecodedFrame)
+  {
+    logCallback("FFmpeg demuxer: pDecodedFrame is NULL\n");
+    return;
+  }
+  AVFrame *pConvertedFrame = getConvertedFrame(pDecodedFrame);
+  printf("ogv-decoder-video-theora: width=%d, height=%d, \
+	 linesize0=%d, linesize1=%d, linesize2=%d\n",
+         pConvertedFrame->width, pConvertedFrame->height,
+         pConvertedFrame->linesize[0], pConvertedFrame->linesize[1], pConvertedFrame->linesize[2]);
+
+  ogvjs_callback_frame(
+      pConvertedFrame->data[0], pConvertedFrame->linesize[0],
+      pConvertedFrame->data[1], pConvertedFrame->linesize[1],
+      pConvertedFrame->data[2], pConvertedFrame->linesize[2],
+      pConvertedFrame->width, pConvertedFrame->height,
+      pConvertedFrame->width / 2, pConvertedFrame->height / 2,
+      pConvertedFrame->width, pConvertedFrame->height,
+      0, 0,
+      pConvertedFrame->width, pConvertedFrame->height);
+
+  av_frame_free(&pConvertedFrame);
+}
+
+void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
+{
+  logCallback("FFmpeg demuxer: calling avcodec_send_packet\n");
+  // Supply raw packet data as input to a decoder
+  // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga58bc4bf1e0ac59e27362597e467efff3
+  int response = avcodec_send_packet(pCodecContext, pPacket);
+  logCallback("FFmpeg demuxer: avcodec_send_packet returned %d (%s)\n", response, av_err2str(response));
+
+  if (response < 0)
+  {
+    logCallback("FFmpeg demuxer error: while sending a packet to the decoder: %s", av_err2str(response));
+  }
+  while (response >= 0)
+  {
+    // Return decoded output data (into a frame) from a decoder
+    // https://ffmpeg.org/doxygen/trunk/group__lavc__decoding.html#ga11e6542c4e66d3028668788a1a74217c
+    AVFrame *pDecodedFrame = av_frame_alloc();
+    if (!pDecodedFrame)
+    {
+      logCallback("FFmpeg demuxer error: could not allocate video frame\n");
+      return;
+    }
+
+    logCallback("FFmpeg demuxer: calling avcodec_receive_frame\n");
+    response = avcodec_receive_frame(pCodecContext, pDecodedFrame);
+    logCallback("FFmpeg demuxer: avcodec_receive_frame returned %d (%s)\n", response, av_err2str(response));
+    if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
+    {
+      logCallback("FFmpeg demuxer error: avcodec_receive_frame needs more data %s\n", av_err2str(response));
+      return;
+    }
+    else if (response < 0)
+    {
+      logCallback("FFmpeg demuxer error: while receiving a frame from the decoder: %s\n", av_err2str(response));
+      return;
+    }
+
+    if (response >= 0)
+    {
+      logCallback(
+          "Frame %d (type=%c, size=%d bytes, format=%d) pts %lld key_frame %d [DTS %d]\n",
+          pCodecContext->frame_number,
+          av_get_picture_type_char(pDecodedFrame->pict_type),
+          pDecodedFrame->pkt_size,
+          pDecodedFrame->format,
+          pDecodedFrame->pts,
+          pDecodedFrame->key_frame,
+          pDecodedFrame->coded_picture_number);
+      if (!pDecodedFrame)
+      {
+        logCallback("FFmpeg demuxer error: something is wrong: %d", (int)pDecodedFrame);
+      }
+      onDecodedFrame(pDecodedFrame);
+    }
+  }
+}
+
 int ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
-  // printf("ogv-decoder-video-theora: ogv_video_decoder_process_frame is being called. data size=%d\n", data_len);
+  logCallback("ogv-decoder-video-theora: ogv_video_decoder_process_frame is being called. data size=%d\n", data_len);
   if (!data_len)
   {
     return 1;
   }
-  const char *pBuf = data;
-  int width = read_int32(&pBuf);
-  int height = read_int32(&pBuf);
-  int linesize0 = read_int32(&pBuf);
-  int linesize1 = read_int32(&pBuf);
-  int linesize2 = read_int32(&pBuf);
-  const int datasize0 = linesize0 * height;
-  const int datasize1 = linesize1 * height / 2;
-  const int datasize2 = linesize2 * height / 2;
-  printf("ogv-decoder-video-theora: width=%d, height=%d, \
-	 linesize0=%d, linesize1=%d, linesize2=%d, \
-		datasize0=%d, datasize1=%d, datasize2=%d\n",
-         width, height,
-         linesize0, linesize1, linesize2,
-         datasize0, datasize1, datasize2);
+  pPacket->data = (uint8_t *)data;
+  pPacket->size = data_len;
 
-  ogvjs_callback_frame(
-      pBuf, linesize0,
-      pBuf + datasize0, linesize1,
-      pBuf + datasize0 + datasize1, linesize2,
-      width, height,
-      width / 2, height / 2,
-      width, height,
-      0, 0,
-      width, height);
+  decodeVideoPacket(pPacket, pVideoCodecContext);
+
   return 1;
 }
 
 void ogv_video_decoder_destroy(void)
 {
   avcodec_parameters_free(&pCodecParams);
+  if (pPacket)
+  {
+    av_packet_free(&pPacket);
+  }
 }
