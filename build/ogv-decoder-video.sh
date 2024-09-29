@@ -48,6 +48,7 @@ CONF_FLAGS=(
   --post-js src/ogv/js/modules/ogv-decoder-video.js
   # -sASYNCIFY
   # -sASYNCIFY_STACK_SIZE=8192
+  src/ogv/c/decoder-helper.c
   src/ogv/c/ogv-decoder-video-theora.c
 )
 
