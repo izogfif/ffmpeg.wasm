@@ -149,13 +149,13 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
   return pConvertedFrame;
 }
 
-void onDecodedFrame(AVFrame *pDecodedFrame)
+int onDecodedFrame(AVFrame *pDecodedFrame)
 {
   logCallback("ogv-decoder-video-theora: onDecodedFrame is being called\n");
   if (!pDecodedFrame)
   {
     logCallback("ogv-decoder-video-theora: pDecodedFrame is NULL\n");
-    return;
+    return 0;
   }
   AVFrame *pConvertedFrame = getConvertedFrame(pDecodedFrame);
   logCallback("ogv-decoder-video-theora: calling ogvjs_callback_frame width=%d, height=%d, \
@@ -177,9 +177,10 @@ void onDecodedFrame(AVFrame *pDecodedFrame)
       pConvertedFrame->width, pConvertedFrame->height);
 
   av_frame_free(&pConvertedFrame);
+  return 1;
 }
 
-void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
+int decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
 {
   logCallback("ogv-decoder-video-theora: calling avcodec_send_packet\n");
   // Supply raw packet data as input to a decoder
@@ -191,6 +192,7 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
   {
     logCallback("ogv-decoder-video-theora error: while sending a packet to the decoder: %s", av_err2str(response));
   }
+  int framesDecoded = 0;
   while (response >= 0)
   {
     // Return decoded output data (into a frame) from a decoder
@@ -199,7 +201,7 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
     if (!pDecodedFrame)
     {
       logCallback("ogv-decoder-video-theora error: could not allocate video frame\n");
-      return;
+      return framesDecoded;
     }
 
     logCallback("ogv-decoder-video-theora: calling avcodec_receive_frame\n");
@@ -208,12 +210,12 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
     if (response == AVERROR(EAGAIN) || response == AVERROR_EOF)
     {
       logCallback("ogv-decoder-video-theora error: avcodec_receive_frame needs more data %s\n", av_err2str(response));
-      return;
+      return framesDecoded;
     }
     else if (response < 0)
     {
       logCallback("ogv-decoder-video-theora error: while receiving a frame from the decoder: %s\n", av_err2str(response));
-      return;
+      return framesDecoded;
     }
 
     if (response >= 0)
@@ -231,9 +233,10 @@ void decodeVideoPacket(AVPacket *pPacket, AVCodecContext *pCodecContext)
       {
         logCallback("ogv-decoder-video-theora error: something is wrong: %d", (int)pDecodedFrame);
       }
-      onDecodedFrame(pDecodedFrame);
+      framesDecoded += onDecodedFrame(pDecodedFrame);
     }
   }
+  return framesDecoded;
 }
 
 int ogv_video_decoder_process_frame(const char *data, size_t data_len)
@@ -246,9 +249,9 @@ int ogv_video_decoder_process_frame(const char *data, size_t data_len)
   pPacket->data = (uint8_t *)data;
   pPacket->size = data_len;
 
-  decodeVideoPacket(pPacket, pVideoCodecContext);
+  int result = decodeVideoPacket(pPacket, pVideoCodecContext);
 
-  return 1;
+  return result;
 }
 
 void ogv_video_decoder_destroy(void)
