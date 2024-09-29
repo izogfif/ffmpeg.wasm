@@ -15,8 +15,13 @@ mergeInto(LibraryManager.library, {
     picX,
     picY,
     displayWidth,
-    displayHeight
+    displayHeight,
+    paramsBuf,
+    paramsBufLength
   ) {
+    const heap = wasmMemory.buffer;
+    const paramsBufCopy = new Uint8Array(paramsBufLength);
+    paramsBufCopy.set(new Uint8Array(heap, paramsBuf, paramsBufLength));
     Module["videoFormat"] = {
       width: frameWidth,
       height: frameHeight,
@@ -29,6 +34,7 @@ mergeInto(LibraryManager.library, {
       displayWidth: displayWidth,
       displayHeight: displayHeight,
       fps: fps,
+      paramsBuf: paramsBufCopy,
     };
   },
 
@@ -72,7 +78,7 @@ mergeInto(LibraryManager.library, {
     len,
     frameTimestamp,
     keyframeTimestamp,
-    isKeyframe
+    isKeyframe,
   ) {
     // console.log(`ogvjs_callback_video_packet: frameTimestamp=${frameTimestamp}, keyframeTimestamp=${keyframeTimestamp}`)
     Module["videoPackets"].push({
@@ -87,7 +93,7 @@ mergeInto(LibraryManager.library, {
     buffer,
     len,
     audioTimestamp,
-    discardPadding
+    discardPadding,
   ) {
     Module["audioPackets"].push({
       data: wasmMemory.buffer.slice(buffer, buffer + len),

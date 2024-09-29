@@ -1,5 +1,9 @@
 // Callbacks
-extern void ogvjs_callback_init_audio(int channels, int rate);
+extern void ogvjs_callback_init_audio(
+    int channels,
+    int rate,
+    const char *videoCodecParams,
+    uint32_t videoCodecParamsLength);
 
 extern void ogvjs_callback_init_video(
     int frameWidth, int frameHeight,
@@ -7,7 +11,9 @@ extern void ogvjs_callback_init_video(
     double fps,
     int picWidth, int picHeight,
     int picX, int picY,
-    int displayWidth, int displayHeight);
+    int displayWidth, int displayHeight,
+    const char *videoCodecParams,
+    uint32_t videoCodecParamsLength);
 
 extern void ogvjs_callback_loaded_metadata(const char *videoCodec, const char *audioCodec);
 extern void ogvjs_callback_video_packet(const char *buffer, size_t len, float frameTimestamp, float keyframeTimestamp, int isKeyframe);
