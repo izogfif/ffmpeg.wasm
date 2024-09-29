@@ -1,5 +1,4 @@
 #include <assert.h>
-#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,10 +15,8 @@
 #include <libavutil/pixfmt.h>
 #include "ogv-demuxer.h"
 #include "ogv-buffer-queue.h"
-#include "ffmpeg_helper.h"
+#include "ffmpeg-helper.h"
 #include <emscripten.h>
-
-#define DEBUG_ENABLED 1
 
 static BufferQueue *bufferQueue;
 
@@ -78,18 +75,7 @@ struct buffer_data
   size_t size; ///< size left in the buffer
 };
 
-static void logCallback(char const *format, ...)
-{
-  if (DEBUG_ENABLED)
-  {
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-  }
-}
-
-void copy_int32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
+void copyInt32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
 {
   const int data_size = 4;
   memcpy(*pBuf, &value_to_copy, data_size);
@@ -98,7 +84,7 @@ void copy_int32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
   // logCallback("copy_int32: wrote %d\n", value_to_copy);
 }
 
-void copy_int64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
+void copyInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
 {
   const int data_size = 8;
   memcpy(*pBuf, &value_to_copy, data_size);
@@ -423,41 +409,41 @@ static int processBegin(void)
     uint32_t allocatedSize = 32 * 4 + pVideoCodecParameters->extradata_size;
     int8_t *const pVideoCodecParamsCopy = (int8_t *)malloc(allocatedSize);
     int8_t *pVCPBuf = pVideoCodecParamsCopy;
-    copy_int32(&pVCPBuf, pVideoCodecParameters->codec_type, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->codec_id, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->codec_tag, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->extradata_size, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->codec_type, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->codec_id, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->codec_tag, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->extradata_size, &codecParamsSize);
     if (pVideoCodecParameters->extradata_size)
     {
       memcpy(pVCPBuf, pVideoCodecParameters->extradata, pVideoCodecParameters->extradata_size);
       pVCPBuf += pVideoCodecParameters->extradata_size;
       codecParamsSize += pVideoCodecParameters->extradata_size;
     }
-    copy_int32(&pVCPBuf, pVideoCodecParameters->format, &codecParamsSize);
-    copy_int64(&pVCPBuf, pVideoCodecParameters->bit_rate, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->bits_per_coded_sample, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->bits_per_raw_sample, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->profile, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->level, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->width, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->height, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->sample_aspect_ratio.num, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->sample_aspect_ratio.den, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->field_order, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->color_range, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->color_primaries, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->color_trc, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->color_space, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->chroma_location, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->video_delay, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->sample_rate, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->block_align, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->frame_size, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->initial_padding, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->trailing_padding, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->seek_preroll, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->ch_layout.order, &codecParamsSize);
-    copy_int32(&pVCPBuf, pVideoCodecParameters->ch_layout.nb_channels, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->format, &codecParamsSize);
+    copyInt64(&pVCPBuf, pVideoCodecParameters->bit_rate, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->bits_per_coded_sample, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->bits_per_raw_sample, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->profile, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->level, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->width, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->height, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->sample_aspect_ratio.num, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->sample_aspect_ratio.den, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->field_order, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->color_range, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->color_primaries, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->color_trc, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->color_space, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->chroma_location, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->video_delay, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->sample_rate, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->block_align, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->frame_size, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->initial_padding, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->trailing_padding, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->seek_preroll, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->ch_layout.order, &codecParamsSize);
+    copyInt32(&pVCPBuf, pVideoCodecParameters->ch_layout.nb_channels, &codecParamsSize);
     // TODO: find out how to copy this
     if (pVideoCodecParameters->ch_layout.order == AV_CHANNEL_ORDER_CUSTOM)
     {
@@ -465,7 +451,7 @@ static int processBegin(void)
     }
     else
     {
-      copy_int64(&pVCPBuf, pVideoCodecParameters->ch_layout.u.mask, &codecParamsSize);
+      copyInt64(&pVCPBuf, pVideoCodecParameters->ch_layout.u.mask, &codecParamsSize);
     }
     if (allocatedSize != codecParamsSize)
     {

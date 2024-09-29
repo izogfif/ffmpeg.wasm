@@ -1,17 +1,5 @@
 #include "decoder-helper.h"
 
-#define DEBUG_ENABLED 1
-
-void logCallback(char const *format, ...)
-{
-  if (DEBUG_ENABLED)
-  {
-    va_list args;
-    va_start(args, format);
-    vprintf(format, args);
-    va_end(args);
-  }
-}
 
 int32_t readInt32(const char **pBuf)
 {
