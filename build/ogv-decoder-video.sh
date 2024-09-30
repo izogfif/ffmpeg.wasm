@@ -50,7 +50,7 @@ CONF_FLAGS=(
   # -sASYNCIFY_STACK_SIZE=8192
   src/ogv/c/ffmpeg-helper.c
   src/ogv/c/decoder-helper.c
-  src/ogv/c/ogv-decoder-video-theora.c
+  src/ogv/c/ogv-decoder-video-ffmpeg.c
 )
 
 emcc "${CONF_FLAGS[@]}" $@

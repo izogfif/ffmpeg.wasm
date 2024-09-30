@@ -22,7 +22,7 @@ static AVCodecParameters *pCodecParams = NULL;
 void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
 {
   logCallback("ogv-decoder-video-theora is being initialized with params length %d\n", paramsDataLength);
-  pCodecParams = readCodecParams(paramsData, paramsDataLength);
+  pCodecParams = readCodecParams(paramsData);
   if (!pCodecParams)
   {
     logCallback("ogv-decoder-video-theora: failed to read codec params\n");

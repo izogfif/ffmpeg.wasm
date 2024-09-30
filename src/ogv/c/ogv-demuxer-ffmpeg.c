@@ -111,16 +111,16 @@ static int readCallback(void *userdata, uint8_t *buffer, int length)
   while (1)
   {
     data_available = bq_headroom((BufferQueue *)userdata);
-    logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
+    // logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
     can_read_bytes = FFMIN(data_available, length);
     pos = ((BufferQueue *)userdata)->pos;
     if (can_read_bytes || !(fileSize - pos))
     {
       break;
     }
-    logCallback(
-        "readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill: %d.\n",
-        length, (int)data_available, fileSize - pos, pos, fileSize, waitingForInput);
+    // logCallback(
+    //     "readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill: %d.\n",
+    //     length, (int)data_available, fileSize - pos, pos, fileSize, waitingForInput);
     if (!waitingForInput)
     {
       waitingForInput = 1;
@@ -143,7 +143,7 @@ static int readCallback(void *userdata, uint8_t *buffer, int length)
   else
   {
     // success
-    logCallback("readCallback: %d bytes read\n", (int)can_read_bytes);
+    // logCallback("readCallback: %d bytes read\n", (int)can_read_bytes);
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
     return can_read_bytes;
   }
@@ -514,8 +514,6 @@ static int processDecoding(void)
         frameTimestamp,
         -1,
         0);
-    av_packet_unref(pPacket);
-    return 1;
   }
   else if (hasAudio && pPacket->stream_index == audioTrack)
   {
@@ -524,11 +522,8 @@ static int processDecoding(void)
     {
       ogvjs_callback_audio_packet((char *)pPacket->buf, pPacket->size, pPacket->pts, 0.0);
     }
-    av_packet_unref(pPacket);
-    return 1;
   }
 
-  // https://ffmpeg.org/doxygen/trunk/group__lavc__packet.html#ga63d5a489b419bd5d45cfd09091cbcbc2
   av_packet_unref(pPacket);
   return 1;
 }

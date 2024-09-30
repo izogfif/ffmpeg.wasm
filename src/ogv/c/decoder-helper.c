@@ -21,7 +21,7 @@ int64_t readInt64(const char **pBuf)
   return result;
 }
 
-AVCodecParameters *readCodecParams(const char *paramsData, int paramsDataLength)
+AVCodecParameters *readCodecParams(const char *paramsData)
 {
   AVCodecParameters *pCodecParams = avcodec_parameters_alloc();
   const char *pBuf = paramsData;
