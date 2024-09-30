@@ -21,7 +21,7 @@ build:
 	FFMPEG_ST="$(FFMPEG_ST)" \
 	FFMPEG_MT="$(FFMPEG_MT)" \
 		docker buildx build \
-			--no-cache-filter=ffmpeg-wasm-builder,exportor \
+			--no-cache-filter=ogv-decoder-video-builder,ogv-demuxer-builder,exportor \
 			--build-arg EXTRA_CFLAGS \
 			--build-arg EXTRA_LDFLAGS \
 			--build-arg FFMPEG_MT \
@@ -34,7 +34,8 @@ build:
 
 build-st:
 	make build \
-		FFMPEG_ST=yes
+		FFMPEG_MT=yes
+#		FFMPEG_ST=yes
 
 build-mt:
 	make build \
@@ -48,7 +49,8 @@ dev-mt:
 	make build-mt EXTRA_CFLAGS="$(DEV_MT_CFLAGS)" EXTRA_ARGS="$(DEV_ARGS)"
 
 prd:
-	make build-st EXTRA_CFLAGS="$(PROD_CFLAGS)"
+	make build-st EXTRA_CFLAGS="$(PROD_MT_CFLAGS)"
+#	make build-st EXTRA_CFLAGS="$(PROD_CFLAGS)"
 
 prd-mt:
 	make build-mt EXTRA_CFLAGS="$(PROD_MT_CFLAGS)"

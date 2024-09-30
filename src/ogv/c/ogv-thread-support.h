@@ -24,7 +24,7 @@ static decode_queue_t decode_queue[decode_queue_size];
 static int decode_queue_start = 0;
 static int decode_queue_end = 0;
 
-static void *decode_thread_run(const char *paramsData);
+static void *decode_thread_run(void *);
 #endif
 
 static void do_init(const char *paramsData);
@@ -87,8 +87,8 @@ static void main_thread_return(void *user_data, float delta) {
 	ogvjs_callback_async_complete(ret, (double)delta);
 }
 
-static void *decode_thread_run(const char *paramsData) {
-	do_init(paramsData);
+static void *decode_thread_run(void *paramsData) {
+	do_init((const char *)paramsData);
 	while (1) {
 		pthread_mutex_lock(&decode_mutex);
 		while (decode_queue_end == decode_queue_start) {
