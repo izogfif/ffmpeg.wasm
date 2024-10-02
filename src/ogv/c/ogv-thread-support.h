@@ -1,7 +1,7 @@
 #include <stdlib.h>
+#include <emscripten/emscripten.h>
 
 #ifdef __EMSCRIPTEN_PTHREADS__
-#include <emscripten/emscripten.h>
 #include <emscripten/threading.h>
 #include <pthread.h>
 

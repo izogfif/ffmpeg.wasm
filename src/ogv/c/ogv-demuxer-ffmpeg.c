@@ -124,6 +124,8 @@ static int readCallback(void *userdata, uint8_t *buffer, int length)
     if (!waitingForInput)
     {
       waitingForInput = 1;
+      logCallback("Requesting seek to %lld\n", pos);
+
       requestSeek(pos);
     }
     emscripten_sleep(100);
@@ -491,7 +493,7 @@ static int processBegin(void)
 
 static int processDecoding(void)
 {
-  logCallback("FFmpeg demuxer: processDecoding is being called\n");
+  // logCallback("FFmpeg demuxer: processDecoding is being called\n");
 
   int read_frame_res = av_read_frame(pFormatContext, pPacket);
   if (read_frame_res < 0)
@@ -501,19 +503,34 @@ static int processDecoding(void)
     return 0;
   }
 
-  logCallback("FFmpeg demuxer: processDecoding successfully read packet. av_read_frame returned %d (%s)\n", read_frame_res, av_err2str(read_frame_res));
+  // logCallback("FFmpeg demuxer: processDecoding successfully read packet. av_read_frame returned %d (%s). Stream index: %d\n", read_frame_res, av_err2str(read_frame_res), pPacket->stream_index);
   // if it's the video stream
   if (hasVideo && pPacket->stream_index == videoTrack)
   {
     float frameTimestamp = pPacket->pts * av_q2d(videoStreamTimeBase);
     logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
                 videoTrack, pPacket->pts, frameTimestamp, pPacket->size);
+    const int returnSize = pPacket->size + 8 + 4 + 4;
+    const char *pResultBuf = malloc(returnSize);
+    const char *pBuf = pResultBuf;
+    const int32_t packetCount = 1;
+    int32_t bytesWritten = 0;
+    copyInt32(&pBuf, packetCount, &bytesWritten);
+    for (int i = 0; i < packetCount; ++i)
+    {
+      copyInt64(&pBuf, pPacket->pts, &bytesWritten);
+      copyInt32(&pBuf, pPacket->size, &bytesWritten);
+      memcpy(pBuf, pPacket->data, pPacket->size);
+      bytesWritten += pPacket->size;
+      logCallback("Demuxed video packet %d pts: %lld, packet size: %d\n", i, pPacket->pts, pPacket->size);
+    }
     ogvjs_callback_video_packet(
-        pPacket->data,
-        pPacket->size,
+        pResultBuf,
+        bytesWritten,
         frameTimestamp,
         -1,
         0);
+    free(pResultBuf);
   }
   else if (hasAudio && pPacket->stream_index == audioTrack)
   {
@@ -575,11 +592,11 @@ void ogv_demuxer_receive_input(const char *buffer, int bufsize)
 
 int ogv_demuxer_process(void)
 {
-  logCallback("FFmpeg demuxer: ogv_demuxer_process is being called\n");
+  // logCallback("FFmpeg demuxer: ogv_demuxer_process is being called\n");
 
   const int64_t data_available = bq_headroom(bufferQueue);
   const int64_t bytes_until_end = fileSize - bufferQueue->pos;
-  logCallback("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
+  // logCallback("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
 
   if (data_available < minBufSize && bytes_until_end > data_available)
   {

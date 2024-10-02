@@ -73,6 +73,7 @@ static int reset(struct FFmpegRamDecoder *d)
     logCallback("avcodec_find_decoder_by_name failed\n");
     return -1;
   }
+  logCallback("Found decoder %s (%s)\n", codec->name, codec->long_name);
   if (!(d->c_ = avcodec_alloc_context3(codec)))
   {
     logCallback("Could not allocate video codec context\n");
@@ -86,8 +87,19 @@ static int reset(struct FFmpegRamDecoder *d)
   }
 
   d->c_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+  // See https://gist.github.com/jimj316/931b8ccbbdbcb5b2d3337879b4829e25#file-main-cpp-L137
+  d->c_->flags2 |= AV_CODEC_FLAG2_FAST;
+  d->c_->skip_loop_filter = AVDISCARD_DEFAULT; // NB: changing this makes no difference
+  d->c_->skip_frame = AVDISCARD_DEFAULT;       //
+  d->c_->skip_idct = AVDISCARD_DEFAULT;        // NB: changing this makes no difference
   // d->c_->thread_count = get_thread_count();
-  d->c_->thread_type = FF_THREAD_SLICE;
+  // See https://stackoverflow.com/a/69025953/156973
+  if (codec->capabilities & AV_CODEC_CAP_FRAME_THREADS)
+    d->c_->thread_type = FF_THREAD_FRAME;
+  else if (codec->capabilities & AV_CODEC_CAP_SLICE_THREADS)
+    d->c_->thread_type = FF_THREAD_SLICE;
+  else
+    d->c_->thread_count = 1; // don't use multithreading
 
   if (!(d->pkt_ = av_packet_alloc()))
   {
@@ -107,8 +119,11 @@ static int reset(struct FFmpegRamDecoder *d)
     return -1;
   }
   logCallback("reset ok\n");
-  logCallback("thread count: %d\n", get_thread_count());
-
+#ifdef __EMSCRIPTEN_PTHREADS__
+  logCallback("PTHREADS enabled\n");
+#else
+  logCallback("PTHREADS disabled\n");
+#endif
   return 0;
 }
 
@@ -190,16 +205,20 @@ static int do_decode()
 {
   int ret;
   bool decoded = false;
+  double sendPacketStart = emscripten_get_now();
   ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
+  double sendPacketEnd = emscripten_get_now();
   if (ret < 0)
   {
     logCallback("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
     return ret;
   }
-  logCallback("avcodec_send_packet ok\n");
+  logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
+  printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
 
   while (ret >= 0)
   {
+    double decodeStart = emscripten_get_now();
     if ((ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_)) != 0)
     {
       if (ret != AVERROR(EAGAIN))
@@ -208,8 +227,15 @@ static int do_decode()
       }
       break;
     }
+    double decodeEnd = emscripten_get_now();
     decoded = true;
-    logCallback("Decoded frame:%p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n", ffmpegRamDecoder, ffmpegRamDecoder->frame_, ffmpegRamDecoder->frame_->width, ffmpegRamDecoder->frame_->height, ffmpegRamDecoder->frame_->linesize[0]);
+    logCallback("Decoded frame in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+                decodeEnd - decodeStart,
+                ffmpegRamDecoder,
+                ffmpegRamDecoder->frame_,
+                ffmpegRamDecoder->frame_->width,
+                ffmpegRamDecoder->frame_->height,
+                ffmpegRamDecoder->frame_->linesize[0]);
     break;
   }
   av_packet_unref(ffmpegRamDecoder->pkt_);
@@ -224,11 +250,20 @@ static int decode(const uint8_t *data, int length)
     logCallback("illegal decode parameter\n");
     return -1;
   }
-  ffmpegRamDecoder->pkt_->data = (uint8_t *)data;
-  ffmpegRamDecoder->pkt_->size = length;
-  logCallback("decode length: %d\n", length);
-  ret = do_decode();
-  return ret;
+  const uint8_t *pBuf = data;
+  const int32_t packetCount = readInt32(&pBuf);
+  for (int i = 0; i < packetCount; ++i)
+  {
+    const int64_t pts = readInt64(&pBuf);
+    const int32_t packetSize = readInt32(&pBuf);
+    ffmpegRamDecoder->pkt_->data = pBuf;
+    ffmpegRamDecoder->pkt_->size = packetSize;
+    ffmpegRamDecoder->pkt_->pts = pts;
+    logCallback("decoding packet #%d of %d, packet size: %d\n", i, packetCount, packetSize);
+    ret = do_decode();
+    // TODO: implement asynchronous decoding of other packets
+    return ret;
+  }
 }
 
 static AVFrame *copy_image(AVFrame *src)
@@ -349,6 +384,7 @@ static int process_frame_return(void *image)
     int converted = 0;
     int chromaWidth, chromaHeight;
     logCallback("process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
+    int oldFormat = frame->format;
     switch (frame->format)
     {
     case AV_PIX_FMT_YUV420P:
@@ -361,7 +397,10 @@ static int process_frame_return(void *image)
       break;
     default:
     {
+      double conversionStart = emscripten_get_now();
       frame = getConvertedFrame(frame);
+      double conversionEnd = emscripten_get_now();
+      logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionEnd - conversionStart);
       chromaWidth = frame->width >> 1;
       chromaHeight = height >> 1;
       converted = 1;
