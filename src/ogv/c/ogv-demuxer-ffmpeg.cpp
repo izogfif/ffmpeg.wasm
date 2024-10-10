@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <limits.h>
+extern "C"
+{
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 // #include <libswscale/swscale.h>
@@ -13,6 +15,7 @@
 #include <libavutil/samplefmt.h>
 #include <libavutil/intreadwrite.h>
 #include <libavutil/pixfmt.h>
+}
 #include "ogv-demuxer.h"
 #include "ogv-buffer-queue.h"
 #include "ffmpeg-helper.h"
@@ -136,7 +139,7 @@ static int readCallback(void *userdata, uint8_t *buffer, int length)
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
     return AVERROR_EOF;
   }
-  if (bq_read((BufferQueue *)userdata, buffer, can_read_bytes))
+  if (bq_read((BufferQueue *)userdata, (char *)buffer, (size_t)can_read_bytes))
   {
     logCallback("readCallback: bq_red failed. Bytes requested: %d, available: %d, bytes until end of file: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos);
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
@@ -200,7 +203,7 @@ static int64_t seekCallback(void *userdata, int64_t offset, int whence)
   }
 }
 
-void ogv_demuxer_init(const char *fileSizeAndPath, int len)
+extern "C" void ogv_demuxer_init(const char *fileSizeAndPath, int len)
 {
   const int fileSizeSize = 8;
   memcpy(&fileSize, fileSizeAndPath, fileSizeSize);
@@ -215,7 +218,7 @@ void ogv_demuxer_init(const char *fileSizeAndPath, int len)
   const char *inputFilePath = fileSizeAndPath + fileSizeSize;
   if (fileNameLength)
   {
-    fileName = malloc(fileNameLength + 1);
+    fileName = (char *)malloc(fileNameLength + 1);
     memset(fileName, 0, fileNameLength + 1);
     memcpy(fileName, inputFilePath, fileNameLength);
     logCallback("FFmpeg demuxer: ogv_demuxer_init with fileName %s\n", fileName);
@@ -229,7 +232,7 @@ void ogv_demuxer_init(const char *fileSizeAndPath, int len)
     logCallback("FFmpeg demuxer error: could not allocate memory for Format Context\n");
     return;
   }
-  avio_ctx_buffer = av_malloc(avio_ctx_buffer_size);
+  avio_ctx_buffer = (uint8_t *)av_malloc(avio_ctx_buffer_size);
   if (!avio_ctx_buffer)
   {
     logCallback("FFmpeg demuxer error: could not allocate memory for AVIO Context buffer");
@@ -467,7 +470,7 @@ static int processBegin(void)
         pVideoCodecParameters->height,
         0, 0,
         pVideoCodecParameters->width, pVideoCodecParameters->height,
-        (const char*)pVideoCodecParamsCopy,
+        (const char *)pVideoCodecParamsCopy,
         codecParamsSize);
     free(pVideoCodecParamsCopy);
   }
@@ -510,10 +513,10 @@ static int processDecoding(void)
     logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
                 videoTrack, pPacket->pts, frameTimestamp, pPacket->size);
     const int returnSize = pPacket->size + 8 + 4 + 4;
-    uint8_t *pResultBuf = (uint8_t*)malloc(returnSize);
+    uint8_t *pResultBuf = (uint8_t *)malloc(returnSize);
     uint8_t *pBuf = pResultBuf;
     const int32_t packetCount = 1;
-    int32_t bytesWritten = 0;
+    uint32_t bytesWritten = 0;
     copyInt32(&pBuf, packetCount, &bytesWritten);
     for (int i = 0; i < packetCount; ++i)
     {
@@ -524,7 +527,7 @@ static int processDecoding(void)
       logCallback("Demuxed video packet %d pts: %lld, packet size: %d\n", i, pPacket->pts, pPacket->size);
     }
     ogvjs_callback_video_packet(
-        pResultBuf,
+        (const char *)pResultBuf,
         bytesWritten,
         frameTimestamp,
         -1,
@@ -578,7 +581,7 @@ static int processSeeking(void)
   // return 0;
 }
 
-void ogv_demuxer_receive_input(const char *buffer, int bufsize)
+extern "C" void ogv_demuxer_receive_input(const char *buffer, int bufsize)
 {
   logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called. bufsize: %d\n", bufsize);
   if (bufsize > 0)
@@ -589,7 +592,7 @@ void ogv_demuxer_receive_input(const char *buffer, int bufsize)
   logCallback("FFmpeg demuxer: ogv_demuxer_receive_input: exited.\n");
 }
 
-int ogv_demuxer_process(void)
+extern "C" int ogv_demuxer_process(void)
 {
   // logCallback("FFmpeg demuxer: ogv_demuxer_process is being called\n");
 
@@ -654,7 +657,7 @@ int ogv_demuxer_process(void)
   }
 }
 
-void ogv_demuxer_destroy(void)
+extern "C" void ogv_demuxer_destroy(void)
 {
   // should probably tear stuff down, eh
   // if (pConvertedFrame)
@@ -669,7 +672,7 @@ void ogv_demuxer_destroy(void)
   bufferQueue = NULL;
 }
 
-void ogv_demuxer_flush(void)
+extern "C" void ogv_demuxer_flush(void)
 {
   bq_flush(bufferQueue);
   // we may not need to handle the packet queue because this only
@@ -680,7 +683,7 @@ void ogv_demuxer_flush(void)
 /**
  * @return segment length in bytes, or -1 if unknown
  */
-long ogv_demuxer_media_length(void)
+extern "C" long ogv_demuxer_media_length(void)
 {
   // @todo check if this is needed? maybe an ogg-specific thing
   return -1;
@@ -689,27 +692,27 @@ long ogv_demuxer_media_length(void)
 /**
  * @return segment duration in seconds, or -1 if unknown
  */
-float ogv_demuxer_media_duration(void)
+extern "C" float ogv_demuxer_media_duration(void)
 {
   if (pFormatContext->duration <= 0)
     return -1;
   return pFormatContext->duration / 1000000.0;
 }
 
-int ogv_demuxer_seekable(void)
+extern "C" int ogv_demuxer_seekable(void)
 {
   // Audio WebM files often have no cues; allow brute-force seeking
   // by linear demuxing through hopefully-cached data.
   return 1;
 }
 
-long ogv_demuxer_keypoint_offset(long time_ms)
+extern "C" long ogv_demuxer_keypoint_offset(long time_ms)
 {
   // can't do with nestegg's API; use ogv_demuxer_seek_to_keypoint instead
   return -1;
 }
 
-int ogv_demuxer_seek_to_keypoint(long time_ms)
+extern "C" int ogv_demuxer_seek_to_keypoint(long time_ms)
 {
   appState = STATE_SEEKING;
   seekTime = (int64_t)time_ms;

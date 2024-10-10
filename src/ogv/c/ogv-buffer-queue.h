@@ -1,4 +1,7 @@
 #include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct {
 	// Todo: turn this into a linked list
@@ -28,3 +31,7 @@ extern void bq_flush(BufferQueue *queue);
 extern void bq_append(BufferQueue *queue, const char *data, size_t len);
 extern int bq_read(BufferQueue *queue, char *data, size_t len);
 extern void bq_free(BufferQueue *queue);
+
+#ifdef __cplusplus
+}
+#endif

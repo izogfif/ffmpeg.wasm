@@ -35,12 +35,12 @@ build:
 build-st:
 	make build \
 		FFMPEG_ST=yes
-#		FFMPEG_MT=yes
 
 build-mt:
 	make build \
-		PKG_SUFFIX=-mt \
-		FFMPEG_MT=yes
+		FFMPEG_MT=yes \
+
+#		PKG_SUFFIX=-mt \
 
 dev:
 	make build-st EXTRA_CFLAGS="$(DEV_CFLAGS)" EXTRA_ARGS="$(DEV_ARGS)"
@@ -49,8 +49,8 @@ dev-mt:
 	make build-mt EXTRA_CFLAGS="$(DEV_MT_CFLAGS)" EXTRA_ARGS="$(DEV_ARGS)"
 
 prd:
-	make build-st EXTRA_CFLAGS="$(PROD_MT_CFLAGS)"
-#	make build-st EXTRA_CFLAGS="$(PROD_CFLAGS)"
+#	make build-mt EXTRA_CFLAGS="$(PROD_MT_CFLAGS)"
+	make build-st EXTRA_CFLAGS="$(PROD_CFLAGS)"
 
 prd-mt:
 	make build-mt EXTRA_CFLAGS="$(PROD_MT_CFLAGS)"

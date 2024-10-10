@@ -1,3 +1,7 @@
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // Callbacks
 extern void ogvjs_callback_init_audio(
     int channels,
@@ -21,3 +25,7 @@ extern void ogvjs_callback_audio_packet(const char *buffer, size_t len, float au
 extern int ogvjs_callback_frame_ready(void);
 extern int ogvjs_callback_audio_ready(void);
 extern void ogvjs_callback_seek(uint32_t offsetLow, uint32_t offsetHigh);
+
+#ifdef __cplusplus
+}
+#endif

@@ -6,12 +6,20 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <libavcodec/avcodec.h>
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 #include <libswscale/swscale.h>
+
+#ifdef __cplusplus
+}
+#endif
 
 #include "ogv-decoder-video.h"
 #include "ogv-thread-support.h"

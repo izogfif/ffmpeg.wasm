@@ -42,6 +42,7 @@ CONF_FLAGS=(
   -sEXPORT_NAME="$EXPORT_NAME"             # required in browser env, so that user can access this module from window object
 #  -sEXPORTED_FUNCTIONS=$(node src/bind/ffmpeg/export.js) # exported functions
   -sEXPORTED_FUNCTIONS=$(node src/ogv/js/modules/ogv-demuxer-exports.js)
+#  -sEXPORTED_RUNTIME_METHODS=ccall,cwrap
 #  -sEXPORTED_RUNTIME_METHODS=$(node src/bind/ffmpeg/export-runtime.js) # exported built-in functions
   -lworkerfs.js
   --js-library src/ogv/js/modules/ogv-demuxer-callbacks.js
@@ -51,7 +52,7 @@ CONF_FLAGS=(
   -sASYNCIFY_STACK_SIZE=8192
   src/ogv/c/ffmpeg-helper.c
   src/ogv/c/ogv-buffer-queue.c
-  src/ogv/c/ogv-demuxer-ffmpeg.c
+  src/ogv/c/ogv-demuxer-ffmpeg.cpp
 )
 
 emcc "${CONF_FLAGS[@]}" $@
