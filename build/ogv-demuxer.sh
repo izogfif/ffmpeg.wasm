@@ -21,13 +21,13 @@ CONF_FLAGS=(
   -Llibswresample 
   -Llibswscale 
   -lavcodec 
-  -lavdevice 
-  -lavfilter 
+  #-lavdevice 
+  #-lavfilter 
   -lavformat 
   -lavutil 
-  -lpostproc 
+  #-lpostproc 
   -lswresample 
-  -lswscale 
+  #-lswscale 
   -Wno-deprecated-declarations 
   $LDFLAGS 
   -sENVIRONMENT=worker

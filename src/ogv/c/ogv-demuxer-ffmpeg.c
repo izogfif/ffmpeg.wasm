@@ -8,7 +8,7 @@
 #include <limits.h>
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
+// #include <libswscale/swscale.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/samplefmt.h>
 #include <libavutil/intreadwrite.h>
@@ -41,8 +41,8 @@ static AVIOContext *avio_ctx = NULL;
 static AVFormatContext *pFormatContext = NULL;
 static AVCodecContext *pVideoCodecContext = NULL;
 static AVPacket *pPacket = NULL;
-static struct SwsContext *pSwsContext = NULL;
-static AVFrame *pConvertedFrame = NULL;
+// static struct SwsContext *pSwsContext = NULL;
+// static AVFrame *pConvertedFrame = NULL;
 static int64_t prev_data_available = 0;
 static int retry_count = 0;
 const int MAX_RETRY_COUNT = 3;
@@ -385,32 +385,31 @@ static int processBegin(void)
       hasVideo = 0;
       return 0;
     }
-    if (pVideoCodecParameters->format != AV_PIX_FMT_YUV420P)
-    {
-      logCallback(
-          "Video pixel format is %d, need %d, initializing scaling context\n",
-          pVideoCodecParameters->format,
-          AV_PIX_FMT_YUV420P);
-      // Need to convert each input video frame to yuv420p format using sws_scale.
-      // Here we're initializing conversion context
-      pSwsContext = sws_getContext(
-          pVideoCodecParameters->width, pVideoCodecParameters->height,
-          pVideoCodecParameters->format,
-          pVideoCodecParameters->width, pVideoCodecParameters->height,
-          AV_PIX_FMT_YUV420P,
-          SWS_FAST_BILINEAR, NULL, NULL, NULL);
-      pConvertedFrame = av_frame_alloc();
-      pConvertedFrame->width = pVideoCodecParameters->width;
-      pConvertedFrame->height = pVideoCodecParameters->height;
-      pConvertedFrame->format = AV_PIX_FMT_YUV420P;
-      av_frame_get_buffer(pConvertedFrame, 0);
-    }
-    // TODO: serialize pVideoCodecParameters
+    // if (pVideoCodecParameters->format != AV_PIX_FMT_YUV420P)
+    // {
+    //   logCallback(
+    //       "Video pixel format is %d, need %d, initializing scaling context\n",
+    //       pVideoCodecParameters->format,
+    //       AV_PIX_FMT_YUV420P);
+    //   // Need to convert each input video frame to yuv420p format using sws_scale.
+    //   // Here we're initializing conversion context
+    //   pSwsContext = sws_getContext(
+    //       pVideoCodecParameters->width, pVideoCodecParameters->height,
+    //       pVideoCodecParameters->format,
+    //       pVideoCodecParameters->width, pVideoCodecParameters->height,
+    //       AV_PIX_FMT_YUV420P,
+    //       SWS_FAST_BILINEAR, NULL, NULL, NULL);
+    //   pConvertedFrame = av_frame_alloc();
+    //   pConvertedFrame->width = pVideoCodecParameters->width;
+    //   pConvertedFrame->height = pVideoCodecParameters->height;
+    //   pConvertedFrame->format = AV_PIX_FMT_YUV420P;
+    //   av_frame_get_buffer(pConvertedFrame, 0);
+    // }
 
     uint32_t codecParamsSize = 0;
     uint32_t allocatedSize = 32 * 4 + pVideoCodecParameters->extradata_size;
-    int8_t *const pVideoCodecParamsCopy = (int8_t *)malloc(allocatedSize);
-    int8_t *pVCPBuf = pVideoCodecParamsCopy;
+    uint8_t *const pVideoCodecParamsCopy = (uint8_t *)malloc(allocatedSize);
+    uint8_t *pVCPBuf = pVideoCodecParamsCopy;
     copyInt32(&pVCPBuf, pVideoCodecParameters->codec_type, &codecParamsSize);
     copyInt32(&pVCPBuf, pVideoCodecParameters->codec_id, &codecParamsSize);
     copyInt32(&pVCPBuf, pVideoCodecParameters->codec_tag, &codecParamsSize);
@@ -468,7 +467,7 @@ static int processBegin(void)
         pVideoCodecParameters->height,
         0, 0,
         pVideoCodecParameters->width, pVideoCodecParameters->height,
-        pVideoCodecParamsCopy,
+        (const char*)pVideoCodecParamsCopy,
         codecParamsSize);
     free(pVideoCodecParamsCopy);
   }
@@ -511,8 +510,8 @@ static int processDecoding(void)
     logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
                 videoTrack, pPacket->pts, frameTimestamp, pPacket->size);
     const int returnSize = pPacket->size + 8 + 4 + 4;
-    const char *pResultBuf = malloc(returnSize);
-    const char *pBuf = pResultBuf;
+    uint8_t *pResultBuf = (uint8_t*)malloc(returnSize);
+    uint8_t *pBuf = pResultBuf;
     const int32_t packetCount = 1;
     int32_t bytesWritten = 0;
     copyInt32(&pBuf, packetCount, &bytesWritten);
@@ -658,8 +657,8 @@ int ogv_demuxer_process(void)
 void ogv_demuxer_destroy(void)
 {
   // should probably tear stuff down, eh
-  if (pConvertedFrame)
-    av_frame_free(&pConvertedFrame);
+  // if (pConvertedFrame)
+  //   av_frame_free(&pConvertedFrame);
   if (pFormatContext)
     avformat_close_input(&pFormatContext);
   if (pPacket)
