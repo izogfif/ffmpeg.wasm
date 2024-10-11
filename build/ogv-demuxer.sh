@@ -53,6 +53,7 @@ CONF_FLAGS=(
   src/ogv/c/ffmpeg-helper.c
   src/ogv/c/ogv-buffer-queue.c
   src/ogv/c/ogv-demuxer-ffmpeg.cpp
+  src/ogv/c/io-helper.cpp
 )
 
 emcc "${CONF_FLAGS[@]}" $@

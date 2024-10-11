@@ -17,11 +17,8 @@ extern "C"
 #include <libavutil/pixfmt.h>
 }
 #include "ogv-demuxer.h"
-#include "ogv-buffer-queue.h"
 #include "ffmpeg-helper.h"
-#include <emscripten.h>
-
-static BufferQueue *bufferQueue;
+#include "io-helper.h"
 
 static bool hasVideo = false;
 static unsigned int videoTrack = -1;
@@ -38,7 +35,6 @@ static int64_t startPosition;
 
 static double lastKeyframeKimestamp = -1;
 static unsigned int LOG_LEVEL_DEFAULT = 0;
-static const unsigned int avio_ctx_buffer_size = 4096;
 static uint8_t *avio_ctx_buffer = NULL;
 static AVIOContext *avio_ctx = NULL;
 static AVFormatContext *pFormatContext = NULL;
@@ -52,18 +48,7 @@ const int MAX_RETRY_COUNT = 3;
 static AVRational videoStreamTimeBase = {1, 1};
 static AVRational audioStreamTimeBase = {1, 1};
 static char *fileName = NULL;
-static uint64_t fileSize = 0;
 static int minBufSize = 1 * 1024 * 1024;
-static int waitingForInput = 0;
-
-enum CallbackState
-{
-  CALLBACK_STATE_NOT_IN_CALLBACK,
-  CALLBACK_STATE_IN_SEEK_CALLBACK,
-  CALLBACK_STATE_IN_READ_CALLBACK,
-};
-
-static enum CallbackState callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
 
 enum AppState
 {
@@ -71,137 +56,6 @@ enum AppState
   STATE_DECODING,
   STATE_SEEKING
 } appState;
-
-struct buffer_data
-{
-  uint8_t *ptr;
-  size_t size; ///< size left in the buffer
-};
-
-void copyInt32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
-{
-  const int data_size = 4;
-  memcpy(*pBuf, &value_to_copy, data_size);
-  *pBuf += data_size;
-  *pSizeCounter += data_size;
-  // logCallback("copy_int32: wrote %d\n", value_to_copy);
-}
-
-void copyInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
-{
-  const int data_size = 8;
-  memcpy(*pBuf, &value_to_copy, data_size);
-  *pBuf += data_size;
-  *pSizeCounter += data_size;
-  // logCallback("copy_int64: wrote %lld\n", value_to_copy);
-}
-
-void requestSeek(int64_t pos)
-{
-  bq_flush(bufferQueue);
-  bufferQueue->pos = pos;
-  uint32_t lower = pos & 0xffffffff;
-  uint32_t higher = pos >> 32;
-  ogvjs_callback_seek(lower, higher);
-}
-
-static int readCallback(void *userdata, uint8_t *buffer, int length)
-{
-  callbackState = CALLBACK_STATE_IN_READ_CALLBACK;
-  int64_t can_read_bytes = 0;
-  int64_t pos = -1;
-  int64_t data_available = -1;
-  while (1)
-  {
-    data_available = bq_headroom((BufferQueue *)userdata);
-    // logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
-    can_read_bytes = FFMIN(data_available, length);
-    pos = ((BufferQueue *)userdata)->pos;
-    if (can_read_bytes || !(fileSize - pos))
-    {
-      break;
-    }
-    // logCallback(
-    //     "readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill: %d.\n",
-    //     length, (int)data_available, fileSize - pos, pos, fileSize, waitingForInput);
-    if (!waitingForInput)
-    {
-      waitingForInput = 1;
-      logCallback("Requesting seek to %lld\n", pos);
-
-      requestSeek(pos);
-    }
-    emscripten_sleep(100);
-  }
-  if (!can_read_bytes)
-  {
-    logCallback("readCallback: end of file reached. Bytes requested: %d, available: %d, bytes until end of file: %lld. Reporting EOF.\n", length, (int)data_available, fileSize - pos);
-    callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-    return AVERROR_EOF;
-  }
-  if (bq_read((BufferQueue *)userdata, (char *)buffer, (size_t)can_read_bytes))
-  {
-    logCallback("readCallback: bq_red failed. Bytes requested: %d, available: %d, bytes until end of file: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos);
-    callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-    return AVERROR_EOF;
-  }
-  else
-  {
-    // success
-    // logCallback("readCallback: %d bytes read\n", (int)can_read_bytes);
-    callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-    return can_read_bytes;
-  }
-}
-
-static int64_t seekCallback(void *userdata, int64_t offset, int whence)
-{
-  callbackState = CALLBACK_STATE_IN_SEEK_CALLBACK;
-  logCallback("seekCallback is being called: offset=%lld, whence=%d\n", offset, whence);
-  int64_t pos;
-  switch (whence)
-  {
-  case SEEK_SET:
-  {
-    pos = offset;
-    break;
-  }
-  case SEEK_CUR:
-  {
-    pos = ((BufferQueue *)userdata)->pos + offset;
-    break;
-  }
-  case AVSEEK_SIZE:
-  {
-    callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-    return fileSize;
-  }
-  case SEEK_END: // not implemented
-  case AVSEEK_FORCE:
-  default:
-    callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-    return -1;
-  }
-  pos = FFMIN(pos, fileSize);
-  while (1)
-  {
-    const int seekRet = bq_seek((BufferQueue *)userdata, pos);
-    int64_t data_available = seekRet ? 0 : bq_headroom((BufferQueue *)userdata);
-    int64_t bytes_until_end = fileSize - pos;
-    if (seekRet || data_available < FFMIN(bytes_until_end, avio_ctx_buffer_size))
-    {
-      logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d. Bytes until end: %lld, data available: %lld\n", seekRet, bytes_until_end, data_available);
-      requestSeek(pos);
-      emscripten_sleep(100);
-    }
-    else
-    {
-      logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
-      callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
-      return pos;
-    }
-  }
-}
 
 extern "C" void ogv_demuxer_init(const char *fileSizeAndPath, int len)
 {
