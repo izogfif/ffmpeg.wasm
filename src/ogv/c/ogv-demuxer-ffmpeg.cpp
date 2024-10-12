@@ -19,13 +19,47 @@ extern "C"
 #include "ogv-demuxer.h"
 #include "ffmpeg-helper.h"
 #include "io-helper.h"
+#include <deque>
+#include <unordered_map>
+
+class DemuxedPacket
+{
+public:
+  DemuxedPacket(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
+      : m_pts(pts), m_dts(dts), m_dataSize(dataSize), m_pData(dataSize ? (uint8_t *)malloc(m_dataSize) : NULL)
+  {
+    if (dataSize)
+    {
+      memcpy(m_pData, pData, dataSize);
+    }
+  }
+  ~DemuxedPacket()
+  {
+    if (m_pData)
+    {
+      free(m_pData);
+    }
+  }
+
+  const int64_t m_pts;
+  const int64_t m_dts;
+  const uint32_t m_dataSize;
+  uint8_t *m_pData;
+};
+
+std::deque<DemuxedPacket>
+    videoPackets;
+
+int endReached = 0;
+
+static const int packetBufferSize = 20;
 
 static bool hasVideo = false;
-static unsigned int videoTrack = -1;
+static int videoStreamIndex = -1;
 static const char *videoCodecName = NULL;
 
 static bool hasAudio = false;
-static unsigned int audioTrack = 0;
+static int audioStreamIndex = 0;
 static const char *audioCodecName = NULL;
 
 // Time to seek to in milliseconds
@@ -39,16 +73,19 @@ static uint8_t *avio_ctx_buffer = NULL;
 static AVIOContext *avio_ctx = NULL;
 static AVFormatContext *pFormatContext = NULL;
 static AVCodecContext *pVideoCodecContext = NULL;
-static AVPacket *pPacket = NULL;
+// static AVPacket *pPacket = NULL;
 // static struct SwsContext *pSwsContext = NULL;
 // static AVFrame *pConvertedFrame = NULL;
 static int64_t prev_data_available = 0;
 static int retry_count = 0;
 const int MAX_RETRY_COUNT = 3;
-static AVRational videoStreamTimeBase = {1, 1};
-static AVRational audioStreamTimeBase = {1, 1};
+std::unordered_map<int, AVRational> streamTimeBase;
 static char *fileName = NULL;
 static int minBufSize = 1 * 1024 * 1024;
+const int64_t fakeDtsInitialValue = -1000;
+// TODO: reset fakeDtsValue to fakeDtsInitialValue during seeking
+int64_t fakeDtsValue = fakeDtsInitialValue;
+int64_t previouslyRequestedPts = -1;
 
 enum AppState
 {
@@ -106,6 +143,7 @@ extern "C" void ogv_demuxer_init(const char *fileSizeAndPath, int len)
     pFormatContext->pb = avio_ctx;
     pFormatContext->flags = AVFMT_FLAG_CUSTOM_IO;
   }
+  videoPackets.clear();
 }
 
 // static int64_t tellCallback(void *userdata)
@@ -161,7 +199,7 @@ static int processBegin(void)
       // In this example if the codec is not found we just skip it
       continue;
     }
-
+    streamTimeBase[i] = pStream->time_base;
     // when the stream is a video we store its index, codec parameters and codec
     switch (pLocalCodecParameters->codec_type)
     {
@@ -171,11 +209,10 @@ static int processBegin(void)
       if (!hasVideo)
       {
         hasVideo = 1;
-        videoTrack = i;
+        videoStreamIndex = i;
         videoCodecName = pLocalCodec->long_name;
         pVideoCodec = pLocalCodec;
         pVideoCodecParameters = pLocalCodecParameters;
-        videoStreamTimeBase = pStream->time_base;
       }
       break;
     }
@@ -185,11 +222,10 @@ static int processBegin(void)
       if (!hasAudio)
       {
         hasAudio = 1;
-        audioTrack = i;
+        audioStreamIndex = i;
         audioCodecName = pLocalCodec->long_name;
         pAudioCodec = pLocalCodec;
         pAudioCodecParameters = pLocalCodecParameters;
-        audioStreamTimeBase = pStream->time_base;
       }
       break;
     }
@@ -234,14 +270,14 @@ static int processBegin(void)
       return -1;
     }
 
-    // https://ffmpeg.org/doxygen/trunk/structAVPacket.html
-    pPacket = av_packet_alloc();
-    if (!pPacket)
-    {
-      logCallback("failed to allocate memory for AVPacket\n");
-      hasVideo = 0;
-      return 0;
-    }
+    // // https://ffmpeg.org/doxygen/trunk/structAVPacket.html
+    // pPacket = av_packet_alloc();
+    // if (!pPacket)
+    // {
+    //   logCallback("failed to allocate memory for AVPacket\n");
+    //   hasVideo = 0;
+    //   return 0;
+    // }
     // if (pVideoCodecParameters->format != AV_PIX_FMT_YUV420P)
     // {
     //   logCallback(
@@ -346,59 +382,135 @@ static int processBegin(void)
 
   return 1;
 }
+void putDemuxedPacketToBuffer(AVPacket const *pPacket, const float frameTimestamp, std::deque<DemuxedPacket> &packetBuffer)
+{
+  while (packetBuffer.size() >= packetBufferSize)
+  {
+    packetBuffer.pop_front();
+  }
+  int64_t dts = pPacket->dts;
+  if (dts < 0)
+  {
+    dts = ++fakeDtsValue;
+  }
+  packetBuffer.emplace_back(pPacket->pts, dts, pPacket->size, pPacket->data);
+  logCallback("FFmpeg demuxer: Adding packet into buffer. Packet pts: %lld, packet size: %d\n", pPacket->pts, pPacket->size);
+}
+int callVideoCallbackIfBufferIsFull()
+{
+  if (videoPackets.size() != packetBufferSize && !endReached)
+  {
+    logCallback("FFmpeg demuxer: not enough packets in buffer (%d / %d) and haven't reached end yet.\n",
+                videoPackets.size(), packetBufferSize);
+    return 0;
+  }
+  uint32_t resultBufSize = 4 + 8;
+  int64_t requestedPts = -1;
+  logCallback("FFmpeg demuxer: iterating over %d packets in buffer\n", videoPackets.size());
+  for (const auto &packet : videoPackets)
+  {
+    logCallback("FFmpeg demuxer: pts %lld, dts %lld, size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
+    resultBufSize += 4 + 8 + 8 + 4 + packet.m_dataSize;
+    if (packet.m_pts > previouslyRequestedPts)
+    {
+      if (requestedPts == -1)
+      {
+        requestedPts = packet.m_pts;
+      }
+      else
+      {
+        requestedPts = FFMIN(requestedPts, packet.m_pts);
+      }
+    }
+  }
+  previouslyRequestedPts = requestedPts;
+  logCallback("Writing %d packets into buffer, total size: %d. Requesting pts: %lld\n", videoPackets.size(), resultBufSize, requestedPts);
 
+  uint8_t *const pResultBuf = (uint8_t *)malloc(resultBufSize);
+  if (!pResultBuf)
+  {
+    logCallback("FFmpeg demuxer: failed to allocate result buffer of size %d\n", resultBufSize);
+    return 0;
+  }
+  logCallback("FFmpeg demuxer: allocated %d bytes for packet buffer\n", resultBufSize);
+  uint8_t *pBuf = pResultBuf;
+  uint32_t bytesWritten = 0;
+  copyInt32(&pBuf, videoPackets.size(), &bytesWritten);
+  copyInt64(&pBuf, requestedPts, &bytesWritten);
+  for (const auto &packet : videoPackets)
+  {
+    logCallback("FFmpeg demuxer: writing data of packet with pts %lld into buffer\n", packet.m_pts);
+    copyInt32(&pBuf, 0, &bytesWritten);
+    copyInt64(&pBuf, packet.m_pts, &bytesWritten);
+    copyInt64(&pBuf, packet.m_dts, &bytesWritten);
+    copyInt32(&pBuf, packet.m_dataSize, &bytesWritten);
+    memcpy(pBuf, packet.m_pData, packet.m_dataSize);
+    pBuf += packet.m_dataSize;
+    bytesWritten += packet.m_dataSize;
+  }
+  logCallback("FFmpeg demuxer: wrote %d bytes into buffer with size %d\n", bytesWritten, resultBufSize);
+  float frameTimestamp = requestedPts * av_q2d(streamTimeBase[videoStreamIndex]);
+  logCallback("FFmpeg demuxer: calling ogvjs_callback_video_packet\n");
+
+  ogvjs_callback_video_packet(
+      (const char *)pResultBuf,
+      bytesWritten,
+      frameTimestamp,
+      -1,
+      0);
+  logCallback("FFmpeg demuxer: freeing pResultBuf\n");
+  free(pResultBuf);
+  logCallback("FFmpeg demuxer: popping video packet\n");
+  videoPackets.pop_front();
+  logCallback("callVideoCallbackIfBufferIsFull ended\n");
+  return 1;
+}
 static int processDecoding(void)
 {
-  // logCallback("FFmpeg demuxer: processDecoding is being called\n");
-
+  logCallback("FFmpeg demuxer: processDecoding is being called\n");
+  AVPacket *pPacket = NULL;
   int read_frame_res = av_read_frame(pFormatContext, pPacket);
-  if (read_frame_res < 0)
+  if (read_frame_res < 0 && read_frame_res != AVERROR_EOF)
   {
     // Probably need more data
     logCallback("FFmpeg demuxer: av_read_frame returned %d (%s)\n", read_frame_res, av_err2str(read_frame_res));
     return 0;
   }
+  if (read_frame_res == AVERROR_EOF)
+  {
+    logCallback("FFmpeg demuxer: end reached\n");
+    endReached = 1;
+    if (!videoPackets.empty())
+    {
+      return callVideoCallbackIfBufferIsFull();
+    }
+  }
+  float frameTimestamp = pPacket->pts * av_q2d(streamTimeBase[pPacket->stream_index]);
+  logCallback("FFmpeg demuxer: got packet for stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
+              pPacket->stream_index, pPacket->pts, frameTimestamp, pPacket->size);
 
+  int ret = 1;
   // logCallback("FFmpeg demuxer: processDecoding successfully read packet. av_read_frame returned %d (%s). Stream index: %d\n", read_frame_res, av_err2str(read_frame_res), pPacket->stream_index);
   // if it's the video stream
-  if (hasVideo && pPacket->stream_index == videoTrack)
+  if (hasVideo && pPacket->stream_index == videoStreamIndex)
   {
-    float frameTimestamp = pPacket->pts * av_q2d(videoStreamTimeBase);
     logCallback("FFmpeg demuxer: got packet for video stream %d, pts: %lld (%.3f s). Packet size: %d bytes\n",
-                videoTrack, pPacket->pts, frameTimestamp, pPacket->size);
-    const int returnSize = pPacket->size + 8 + 4 + 4;
-    uint8_t *pResultBuf = (uint8_t *)malloc(returnSize);
-    uint8_t *pBuf = pResultBuf;
-    const int32_t packetCount = 1;
-    uint32_t bytesWritten = 0;
-    copyInt32(&pBuf, packetCount, &bytesWritten);
-    for (int i = 0; i < packetCount; ++i)
-    {
-      copyInt64(&pBuf, pPacket->pts, &bytesWritten);
-      copyInt32(&pBuf, pPacket->size, &bytesWritten);
-      memcpy(pBuf, pPacket->data, pPacket->size);
-      bytesWritten += pPacket->size;
-      logCallback("Demuxed video packet %d pts: %lld, packet size: %d\n", i, pPacket->pts, pPacket->size);
-    }
-    ogvjs_callback_video_packet(
-        (const char *)pResultBuf,
-        bytesWritten,
-        frameTimestamp,
-        -1,
-        0);
-    free(pResultBuf);
+                videoStreamIndex, pPacket->pts, frameTimestamp, pPacket->size);
+    putDemuxedPacketToBuffer(pPacket, frameTimestamp, videoPackets);
+    ret = callVideoCallbackIfBufferIsFull();
   }
-  else if (hasAudio && pPacket->stream_index == audioTrack)
+  else if (hasAudio && pPacket->stream_index == audioStreamIndex)
   {
-    logCallback("FFmpeg demuxer: got packet for audio stream %d\n", audioTrack);
+    logCallback("FFmpeg demuxer: got packet for audio stream %d\n", audioStreamIndex);
     if (pPacket->size)
     {
       ogvjs_callback_audio_packet((char *)pPacket->buf, pPacket->size, pPacket->pts, 0.0);
     }
+    ret = 1;
   }
 
   av_packet_unref(pPacket);
-  return 1;
+  return ret;
 }
 
 static int processSeeking(void)
@@ -437,7 +549,7 @@ static int processSeeking(void)
 
 extern "C" void ogv_demuxer_receive_input(const char *buffer, int bufsize)
 {
-  logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called. bufsize: %d\n", bufsize);
+  logCallback("FFmpeg demuxer: ogv_demuxer_receive_input is being called. bufsize: %d, waiting for input: %d\n", bufsize, waitingForInput);
   if (bufsize > 0)
   {
     waitingForInput = 0;
@@ -446,6 +558,13 @@ extern "C" void ogv_demuxer_receive_input(const char *buffer, int bufsize)
   logCallback("FFmpeg demuxer: ogv_demuxer_receive_input: exited.\n");
 }
 
+/**
+ * Process previously queued data into packets.
+ *
+ * return value is 'true' if there
+ * are more packets to be processed in the queued data,
+ * or 'false' if there aren't.
+ */
 extern "C" int ogv_demuxer_process(void)
 {
   // logCallback("FFmpeg demuxer: ogv_demuxer_process is being called\n");
@@ -518,8 +637,8 @@ extern "C" void ogv_demuxer_destroy(void)
   //   av_frame_free(&pConvertedFrame);
   if (pFormatContext)
     avformat_close_input(&pFormatContext);
-  if (pPacket)
-    av_packet_free(&pPacket);
+  // if (pPacket)
+  //   av_packet_free(&pPacket);
   if (pVideoCodecContext)
     avcodec_free_context(&pVideoCodecContext);
   bq_free(bufferQueue);
@@ -572,11 +691,11 @@ extern "C" int ogv_demuxer_seek_to_keypoint(long time_ms)
   seekTime = (int64_t)time_ms;
   if (hasVideo)
   {
-    seekTrack = videoTrack;
+    seekTrack = videoStreamIndex;
   }
   else if (hasAudio)
   {
-    seekTrack = audioTrack;
+    seekTrack = audioStreamIndex;
   }
   else
   {

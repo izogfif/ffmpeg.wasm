@@ -7,7 +7,8 @@
 #include <sys/stat.h>
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
 #include <libavcodec/avcodec.h>
@@ -35,6 +36,9 @@ struct FFmpegRamDecoder
 static struct FFmpegRamDecoder *ffmpegRamDecoder = NULL;
 static AVCodecParameters *pCodecParams = NULL;
 static struct SwsContext *pSwsContext = NULL;
+int64_t requestedPts = -1;
+int64_t highestDtsQueued = AV_NOPTS_VALUE;
+int64_t ptsReturned = AV_NOPTS_VALUE;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -208,90 +212,134 @@ void do_destroy(void)
 {
   // should tear instance down, but meh
 }
-
-static int do_decode()
+static AVFrame *getFrameWithPts()
 {
-  int ret;
-  bool decoded = false;
-  double sendPacketStart = emscripten_get_now();
-  ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
-  double sendPacketEnd = emscripten_get_now();
-  if (ret < 0)
+  for (;;)
   {
-    logCallback("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
-    return ret;
-  }
-  logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
-  printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
-
-  while (ret >= 0)
-  {
+    if (ffmpegRamDecoder->frame_)
+    {
+      if (ffmpegRamDecoder->frame_->pts == requestedPts)
+      {
+        logCallback("Obtained frame with requested pts %lld\n", ffmpegRamDecoder->frame_->pts);
+        return ffmpegRamDecoder->frame_;
+      }
+    }
     double decodeStart = emscripten_get_now();
-    if ((ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_)) != 0)
+    int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
+    double decodeEnd = emscripten_get_now();
+    if (ret != 0)
     {
       if (ret != AVERROR(EAGAIN))
       {
-        logCallback("avcodec_receive_frame failed,  ret=%d, msg=%s\n", ret, av_err2str(ret));
+        // This is an actual error, report it
+        logCallback("avcodec_receive_frame failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
       }
-      break;
+      return NULL;
     }
-    double decodeEnd = emscripten_get_now();
-    decoded = true;
-    logCallback("Decoded frame in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+    logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+                ffmpegRamDecoder->frame_->pts,
+                ffmpegRamDecoder->frame_->pkt_dts,
                 decodeEnd - decodeStart,
                 ffmpegRamDecoder,
                 ffmpegRamDecoder->frame_,
                 ffmpegRamDecoder->frame_->width,
                 ffmpegRamDecoder->frame_->height,
                 ffmpegRamDecoder->frame_->linesize[0]);
-    break;
-  }
-  av_packet_unref(ffmpegRamDecoder->pkt_);
-  return decoded ? 0 : -1;
-}
-
-static int decode(const uint8_t *data, int length)
-{
-  int ret = -1;
-  if (!data || !length)
-  {
-    logCallback("illegal decode parameter\n");
-    return -1;
-  }
-  const uint8_t *pBuf = data;
-  const int32_t packetCount = readInt32(&pBuf);
-  for (int i = 0; i < packetCount; ++i)
-  {
-    const int64_t pts = readInt64(&pBuf);
-    const int32_t packetSize = readInt32(&pBuf);
-    ffmpegRamDecoder->pkt_->data = pBuf;
-    ffmpegRamDecoder->pkt_->size = packetSize;
-    ffmpegRamDecoder->pkt_->pts = pts;
-    logCallback("decoding packet #%d of %d, packet size: %d\n", i, packetCount, packetSize);
-    ret = do_decode();
-    // TODO: implement asynchronous decoding of other packets
-    return ret;
   }
 }
-
 static AVFrame *copy_image(AVFrame *src)
 {
-  // AVFrame* dest = av_frame_alloc();
-  // if (!dest) {
-  // 	return NULL;
+  return src;
+  // AVFrame *dest = av_frame_alloc();
+  // if (!dest)
+  // {
+  //   logCallback("copy_image failed to allocate frame\n");
+  //   return NULL;
   // }
-  // // copy src to dest
+  // // Copy src to dest, see https://stackoverflow.com/a/38809306/156973 for details
   // dest->format = src->format;
   // dest->width = src->width;
   // dest->height = src->height;
   // dest->channels = src->channels;
   // dest->channel_layout = src->channel_layout;
   // dest->nb_samples = src->nb_samples;
-  // av_frame_get_buffer(dest, 32); // 32 ??
-  // av_frame_copy(dest, src);
-  // av_frame_copy_props(dest, src);
+  // int ret = av_frame_get_buffer(dest, 0);
+  // if (ret)
+  // {
+  //   logCallback("av_frame_get_buffer failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+  //   return src;
+  // }
+  // ret = av_frame_copy(dest, src);
+  // if (ret)
+  // {
+  //   logCallback("av_frame_copy failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+  //   return src;
+  // }
+  // ret = av_frame_copy_props(dest, src);
+  // if (ret)
+  // {
+  //   logCallback("av_frame_copy_props failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+  //   return src;
+  // }
   // return dest;
-  return src;
+}
+int checkFrame()
+{
+  if (ptsReturned != requestedPts)
+  {
+    const AVFrame *pResultFrame = getFrameWithPts();
+    if (pResultFrame)
+    {
+      // We found requested frame
+      call_main_return(copy_image(pResultFrame), 1);
+      ptsReturned = requestedPts;
+      return 1;
+    }
+  }
+  return 0;
+}
+/**
+ * Returns:
+ * 1 if packet was queued or skipped because it has already been queued in the past
+ * 0 if an error (e.g. AVERROR(EAGAIN)) happened
+ */
+int queuePacketIfNeeded(const char **ppBuf)
+{
+  const int64_t pts = readInt64(ppBuf);
+  const int64_t dts = readInt64(ppBuf);
+  const int32_t packetSize = readInt32(ppBuf);
+  ffmpegRamDecoder->pkt_->data = *ppBuf;
+  ffmpegRamDecoder->pkt_->size = packetSize;
+  ffmpegRamDecoder->pkt_->pts = pts;
+  ffmpegRamDecoder->pkt_->dts = dts;
+  *ppBuf += packetSize;
+
+  if (dts <= highestDtsQueued)
+  {
+    logCallback("Skipped packet with pts %lld (dts %lld) since highest dts of already queued packet is %lld\n", pts, dts, highestDtsQueued);
+    return 1;
+  }
+  else
+  {
+    logCallback("Queueing packet with pts %lld (dts %lld), packet size: %d\n", pts, dts, packetSize);
+    double sendPacketStart = emscripten_get_now();
+    int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
+    double sendPacketEnd = emscripten_get_now();
+    if (ret == AVERROR(EAGAIN))
+    {
+      logCallback("avcodec_send_packet's buffer is full\n");
+      return 0;
+    }
+    if (ret < 0)
+    {
+      logCallback("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
+      return 0;
+    }
+    logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
+    printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
+    highestDtsQueued = dts;
+    return 1;
+  }
 }
 
 AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
@@ -351,91 +399,112 @@ static void process_frame_decode(const char *data, size_t data_len)
     return;
   }
 
-  int ret = decode((const uint8_t *)data, data_len);
-  logCallback("Right after decode:%p, ffmpegRamDecoder->frame_:%p, width: %d, height: %d, linesize[0]: %d\n", ffmpegRamDecoder, ffmpegRamDecoder->frame_, ffmpegRamDecoder->frame_->width, ffmpegRamDecoder->frame_->height, ffmpegRamDecoder->frame_->linesize[0]);
-  if (ret != 0)
+  // const char *pBuf = data;
+  // Need to copy data because it will be free'd by the caller
+  // once we call call_main_return from checkFrame (if a frame with requested PTS was found)
+  const char *const dataCopy = (const char *)malloc(data_len);
+  const char *pBuf = dataCopy;
+  if (!pBuf)
   {
-    call_main_return(NULL, 0);
+    logCallback("Failed to allocate %d bytes to copy input data into\n", data_len);
     return;
   }
-  logCallback("ffmpegRamDecoder:%p, ffmpegRamDecoder->frame_:%p, width: %d, height: %d, linesize[0]: %d\n", ffmpegRamDecoder, ffmpegRamDecoder->frame_, ffmpegRamDecoder->frame_->width, ffmpegRamDecoder->frame_->height, ffmpegRamDecoder->frame_->linesize[0]);
-  AVFrame *frame = ffmpegRamDecoder->frame_;
-
-  // send back to the main thread for extraction.
-#ifdef __EMSCRIPTEN_PTHREADS__
-  // Copy off main thread and send asynchronously...
-  // This allows decoding to continue without waiting
-  // for the main thread.
-  call_main_return(copy_image(frame), 0);
-#else
-  call_main_return(frame, 1);
-#endif
+  memcpy(pBuf, data, data_len);
+  const int32_t packetCount = readInt32(&pBuf);
+  if (packetCount == 0)
+  {
+    // We're in multi-thread mode: data contains only one packet
+    queuePacketIfNeeded(&pBuf);
+  }
+  else
+  {
+    // We are in single-thread mode
+    logCallback("Single-thread mode. Decoding batch of %d packets\n", packetCount);
+    requestedPts = readInt64(&pBuf);
+    logCallback("Requested pts %lld\n", requestedPts);
+    checkFrame();
+    for (int i = 0; i < packetCount; ++i)
+    {
+      const int32_t dummy = readInt32(&pBuf);
+      if (dummy != 0)
+      {
+        logCallback("Invalid packet signature\n");
+        call_main_return(NULL, 0);
+        return;
+      }
+      int packetQueued = queuePacketIfNeeded(&pBuf);
+      int packetQueueReadyToReceiveNewPackets = checkFrame();
+      if (!packetQueued && !packetQueueReadyToReceiveNewPackets)
+      {
+        break;
+      }
+    }
+    // call_main_return(NULL, 0);
+  }
+  free(dataCopy);
 }
 
 static int process_frame_return(void *image)
 {
   AVFrame *frame = (AVFrame *)image;
   logCallback("process_frame_return: %p\n", frame);
-  if (frame)
-  {
-    // image->h is inexplicably large for small sizes.
-    // don't both copying the extra, but make sure it's chroma-safe.
-    int height = frame->height;
-    if ((height & 1) == 1)
-    {
-      // copy one extra row if need be
-      // not sure this is even possible
-      // but defend in depth
-      height++;
-    }
-
-    int converted = 0;
-    int chromaWidth, chromaHeight;
-    logCallback("process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
-    int oldFormat = frame->format;
-    switch (frame->format)
-    {
-    case AV_PIX_FMT_YUV420P:
-      chromaWidth = frame->width >> 1;
-      chromaHeight = height >> 1;
-      break;
-    case AV_PIX_FMT_YUV444P:
-      chromaWidth = frame->width;
-      chromaHeight = height;
-      break;
-    default:
-    {
-      double conversionStart = emscripten_get_now();
-      frame = getConvertedFrame(frame);
-      double conversionEnd = emscripten_get_now();
-      logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionEnd - conversionStart);
-      chromaWidth = frame->width >> 1;
-      chromaHeight = height >> 1;
-      converted = 1;
-    }
-    }
-    ogvjs_callback_frame(frame->data[0], frame->linesize[0],
-                         frame->data[1], frame->linesize[1],
-                         frame->data[2], frame->linesize[2],
-                         frame->width, height,
-                         chromaWidth, chromaHeight,
-                         frame->width, frame->height,  // crop size
-                         0, 0,                         // crop pos
-                         frame->width, frame->height); // render size
-    if (converted)
-    {
-      av_frame_free(&frame);
-    }
-#ifdef __EMSCRIPTEN_PTHREADS__
-    // We were given a copy, so free it.
-    // vpx_img_free(image); // todo
-#else
-    // Image will be freed implicitly by next decode call.
-#endif
-    return 1;
-  }
-  else
+  if (!frame)
   {
     return 0;
   }
+  // image->h is inexplicably large for small sizes.
+  // don't both copying the extra, but make sure it's chroma-safe.
+  int height = frame->height;
+  if ((height & 1) == 1)
+  {
+    // copy one extra row if need be
+    // not sure this is even possible
+    // but defend in depth
+    height++;
+  }
+
+  int converted = 0;
+  int chromaWidth, chromaHeight;
+  logCallback("process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
+  int oldFormat = frame->format;
+  switch (frame->format)
+  {
+  case AV_PIX_FMT_YUV420P:
+    chromaWidth = frame->width >> 1;
+    chromaHeight = height >> 1;
+    break;
+  case AV_PIX_FMT_YUV444P:
+    chromaWidth = frame->width;
+    chromaHeight = height;
+    break;
+  default:
+  {
+    double conversionStart = emscripten_get_now();
+    frame = getConvertedFrame(frame);
+    double conversionEnd = emscripten_get_now();
+    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionEnd - conversionStart);
+    chromaWidth = frame->width >> 1;
+    chromaHeight = height >> 1;
+    converted = 1;
+  }
+  }
+  ogvjs_callback_frame(frame->data[0], frame->linesize[0],
+                       frame->data[1], frame->linesize[1],
+                       frame->data[2], frame->linesize[2],
+                       frame->width, height,
+                       chromaWidth, chromaHeight,
+                       frame->width, frame->height,  // crop size
+                       0, 0,                         // crop pos
+                       frame->width, frame->height); // render size
+  if (converted)
+  {
+    av_frame_free(&frame);
+  }
+#ifdef __EMSCRIPTEN_PTHREADS__
+  // We were given a copy, so free it.
+  // vpx_img_free(image); // todo
+#else
+  // Image will be freed implicitly by next decode call.
+#endif
+  return 1;
 }

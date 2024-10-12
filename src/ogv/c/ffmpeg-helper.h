@@ -1,5 +1,5 @@
 #define FFMPEG_CODEC_NAME "ffmpeg"
-#define DEBUG_ENABLED 0
+#define DEBUG_ENABLED 1
 
 #ifdef __cplusplus
 extern "C" {
