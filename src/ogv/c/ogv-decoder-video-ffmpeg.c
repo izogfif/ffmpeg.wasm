@@ -39,6 +39,8 @@ static struct SwsContext *pSwsContext = NULL;
 int64_t requestedPts = -1;
 int64_t highestDtsQueued = AV_NOPTS_VALUE;
 int64_t ptsReturned = AV_NOPTS_VALUE;
+double decodingStartTime = -1;
+AVRational timeBase = {1, 1};
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -142,7 +144,7 @@ static int reset(struct FFmpegRamDecoder *d)
 static void do_init(const char *paramsData)
 {
   logCallback("ogv-decoder-video-theora is being initialized\n");
-  pCodecParams = readCodecParams(paramsData);
+  pCodecParams = readCodecParams(paramsData, &timeBase);
   if (!pCodecParams)
   {
     logCallback("ogv-decoder-video-theora: failed to read codec params\n");
@@ -336,7 +338,7 @@ int queuePacketIfNeeded(const char **ppBuf)
       return 0;
     }
     logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
-    printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
+    // printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
     highestDtsQueued = dts;
     return 1;
   }
@@ -420,6 +422,11 @@ static void process_frame_decode(const char *data, size_t data_len)
   {
     // We are in single-thread mode
     logCallback("Single-thread mode. Decoding batch of %d packets\n", packetCount);
+    if (requestedPts == -1)
+    {
+      // This is the first frame ever requested
+      decodingStartTime = emscripten_get_now();
+    }
     requestedPts = readInt64(&pBuf);
     logCallback("Requested pts %lld\n", requestedPts);
     checkFrame();
@@ -488,6 +495,14 @@ static int process_frame_return(void *image)
     converted = 1;
   }
   }
+  double frameDecodedTime = emscripten_get_now();
+  double timePassedBetweenVideoStartAndFrameDecoded = frameDecodedTime - decodingStartTime;
+  double frameTimestamp = requestedPts * av_q2d(timeBase);
+  printf("[%lld, %.3f, %.3f],\n",
+         requestedPts,
+         frameTimestamp,
+         timePassedBetweenVideoStartAndFrameDecoded);
+
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],
                        frame->data[2], frame->linesize[2],

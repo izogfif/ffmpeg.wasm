@@ -21,10 +21,12 @@ int64_t readInt64(const char **pBuf)
   return result;
 }
 
-AVCodecParameters *readCodecParams(const char *paramsData)
+AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase)
 {
   AVCodecParameters *pCodecParams = avcodec_parameters_alloc();
   const char *pBuf = paramsData;
+  pTimeBase->num = readInt32(&pBuf);
+  pTimeBase->den = readInt32(&pBuf);
   pCodecParams->codec_type = readInt32(&pBuf);
   pCodecParams->codec_id = readInt32(&pBuf);
   pCodecParams->codec_tag = readInt32(&pBuf);
