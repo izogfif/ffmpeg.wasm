@@ -41,6 +41,7 @@ int64_t highestDtsQueued = AV_NOPTS_VALUE;
 int64_t ptsReturned = AV_NOPTS_VALUE;
 double decodingStartTime = -1;
 AVRational timeBase = {1, 1};
+int packetsInBuffer = 0;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -59,7 +60,7 @@ static void free_decoder(struct FFmpegRamDecoder *d)
 static int get_thread_count()
 {
 #ifdef __EMSCRIPTEN_PTHREADS__
-  const int max_cores = 8; // max threads for UHD tiled decoding
+  const int max_cores = 4; // max threads for UHD tiled decoding
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {
@@ -106,12 +107,13 @@ static int reset(struct FFmpegRamDecoder *d)
   d->c_->skip_loop_filter = AVDISCARD_DEFAULT; // NB: changing this makes no difference
   d->c_->skip_frame = AVDISCARD_DEFAULT;       //
   d->c_->skip_idct = AVDISCARD_DEFAULT;        // NB: changing this makes no difference
-  // d->c_->thread_count = get_thread_count();
+  d->c_->thread_count = get_thread_count();
   // See https://stackoverflow.com/a/69025953/156973
-  if (codec->capabilities & AV_CODEC_CAP_FRAME_THREADS)
-    d->c_->thread_type = FF_THREAD_FRAME;
+  if (0) {}
   else if (codec->capabilities & AV_CODEC_CAP_SLICE_THREADS)
     d->c_->thread_type = FF_THREAD_SLICE;
+  else if (codec->capabilities & AV_CODEC_CAP_FRAME_THREADS)
+    d->c_->thread_type = FF_THREAD_FRAME;
   else
     d->c_->thread_count = 1; // don't use multithreading
 
@@ -138,6 +140,7 @@ static int reset(struct FFmpegRamDecoder *d)
 #else
   logCallback("PTHREADS disabled\n");
 #endif
+  packetsInBuffer = 0;
   return 0;
 }
 
@@ -247,6 +250,7 @@ static AVFrame *getFrameWithPts()
                 ffmpegRamDecoder->frame_->width,
                 ffmpegRamDecoder->frame_->height,
                 ffmpegRamDecoder->frame_->linesize[0]);
+    --packetsInBuffer;
   }
 }
 static AVFrame *copy_image(AVFrame *src)
@@ -340,6 +344,7 @@ int queuePacketIfNeeded(const char **ppBuf)
     logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
     // printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
     highestDtsQueued = dts;
+    ++packetsInBuffer;
     return 1;
   }
 }
@@ -496,12 +501,15 @@ static int process_frame_return(void *image)
   }
   }
   double frameDecodedTime = emscripten_get_now();
-  double timePassedBetweenVideoStartAndFrameDecoded = frameDecodedTime - decodingStartTime;
-  double frameTimestamp = requestedPts * av_q2d(timeBase);
-  printf("[%lld, %.3f, %.3f],\n",
+  double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
+  double desiredTime = requestedPts * av_q2d(timeBase);
+  double lag = actualTime - desiredTime;
+  printf("[%lld, %.3f, %.3f, %.3f, %d],\n",
          requestedPts,
-         frameTimestamp,
-         timePassedBetweenVideoStartAndFrameDecoded);
+         desiredTime,
+         actualTime,
+         lag,
+         packetsInBuffer);
 
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],

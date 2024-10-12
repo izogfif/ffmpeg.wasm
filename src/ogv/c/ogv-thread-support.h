@@ -79,17 +79,21 @@ int ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
   pthread_mutex_lock(&decode_mutex);
 
-  // Slice data and fill decode_queue with individual chunks
-  const uint8_t *pBuf = data;
-  const int32_t packetCount = readInt32(&pBuf);
-  for (int i = 0; i < packetCount; ++i)
-  {
-    const int64_t pts = readInt64(&pBuf);
-    const int32_t packetSize = readInt32(&pBuf);
-    decode_queue[decode_queue_end].data = pBuf;
-    decode_queue[decode_queue_end].data_len = packetSize;
-    decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
-  }
+  // // Slice data and fill decode_queue with individual chunks
+  // const uint8_t *pBuf = data;
+  // const int32_t packetCount = readInt32(&pBuf);
+  // for (int i = 0; i < packetCount; ++i)
+  // {
+  //   const int64_t pts = readInt64(&pBuf);
+  //   const int32_t packetSize = readInt32(&pBuf);
+  //   decode_queue[decode_queue_end].data = pBuf;
+  //   decode_queue[decode_queue_end].data_len = packetSize;
+  //   decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
+  // }
+
+	decode_queue[decode_queue_end].data = data;
+	decode_queue[decode_queue_end].data_len = data_len;
+	decode_queue_end = (decode_queue_end + 1) % decode_queue_size;  
 
   pthread_cond_signal(&ping_cond);
   pthread_mutex_unlock(&decode_mutex);
