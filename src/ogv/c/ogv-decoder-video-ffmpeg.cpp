@@ -42,6 +42,9 @@ int64_t ptsReturned = AV_NOPTS_VALUE;
 double decodingStartTime = -1;
 AVRational timeBase = {1, 1};
 int packetsInBuffer = 0;
+double totalSendTime = 0;
+double totalReceiveFrameTime = 0;
+double totalConversionTime = 0;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -161,6 +164,9 @@ static int reset(struct FFmpegRamDecoder *d)
   logCallback("PTHREADS disabled\n");
 #endif
   packetsInBuffer = 0;
+  totalSendTime = 0;
+  totalReceiveFrameTime = 0;
+  totalConversionTime = 0;
   return 0;
 }
 
@@ -250,9 +256,11 @@ static AVFrame *getFrameWithPts()
         return ffmpegRamDecoder->frame_;
       }
     }
-    double decodeStart = emscripten_get_now();
+    double receiveFrameStart = emscripten_get_now();
     int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
-    double decodeEnd = emscripten_get_now();
+    double receiveFrameEnd = emscripten_get_now();
+    double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
+    totalReceiveFrameTime += receiveFrameTime;
     if (ret != 0)
     {
       if (ret != AVERROR(EAGAIN))
@@ -265,7 +273,7 @@ static AVFrame *getFrameWithPts()
     logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
                 ffmpegRamDecoder->frame_->pts,
                 ffmpegRamDecoder->frame_->pkt_dts,
-                decodeEnd - decodeStart,
+                receiveFrameTime,
                 ffmpegRamDecoder,
                 ffmpegRamDecoder->frame_,
                 ffmpegRamDecoder->frame_->width,
@@ -352,6 +360,8 @@ int queuePacketIfNeeded(const char **ppBuf)
     double sendPacketStart = emscripten_get_now();
     int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
     double sendPacketEnd = emscripten_get_now();
+    double sendTime = sendPacketEnd - sendPacketStart;
+    totalSendTime += sendTime;
     if (ret == AVERROR(EAGAIN))
     {
       logCallback("avcodec_send_packet's buffer is full\n");
@@ -362,7 +372,7 @@ int queuePacketIfNeeded(const char **ppBuf)
       logCallback("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
       return 0;
     }
-    logCallback("avcodec_send_packet took %.3f ms\n", sendPacketEnd - sendPacketStart);
+    logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
     // printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
     highestDtsQueued = dts;
     ++packetsInBuffer;
@@ -517,6 +527,7 @@ static int process_frame_return(void *image)
     frame = getConvertedFrame(frame);
     double conversionEnd = emscripten_get_now();
     conversionTime = conversionEnd - conversionStart;
+    totalConversionTime += conversionTime;
     logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionTime);
     chromaWidth = frame->width >> 1;
     chromaHeight = height >> 1;
@@ -530,13 +541,16 @@ static int process_frame_return(void *image)
   // To parse this output as JavaScript, copy the output from console
   // and the commented out lines before and after the entire output:
   // cc = [
-  printf("[%lld, %.3f, %.3f, %.3f, %d, %.3f],\n",
+  printf("[%lld, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f],\n",
          requestedPts,
          desiredTime,
          actualTime,
          lag,
          packetsInBuffer,
-         conversionTime);
+         conversionTime,
+         totalReceiveFrameTime,
+         totalSendTime,
+         totalConversionTime);
   // ];
   // console.log(cc.map(x => `${x[0]}\t${x[1]}\t${x[2]}\t${x[3]}\t${x[4]}`).join('\n'));
 
