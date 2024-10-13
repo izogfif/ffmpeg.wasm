@@ -33,12 +33,15 @@ static void do_destroy(void);
 static void process_frame_decode(const char *data, size_t data_len);
 static int process_frame_return(void *user_data);
 
+#ifdef __cplusplus
+extern "C"
+#endif
 void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
 {
 #ifdef __EMSCRIPTEN_PTHREADS__
   pthread_mutex_init(&decode_mutex, NULL);
   pthread_cond_init(&ping_cond, NULL);
-  int ret = pthread_create(&decode_thread, NULL, decode_thread_run, paramsData);
+  int ret = pthread_create(&decode_thread, NULL, decode_thread_run, (void *)paramsData);
   if (ret)
   {
     abort();
@@ -48,6 +51,9 @@ void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
 #endif
 }
 
+#ifdef __cplusplus
+extern "C"
+#endif
 int ogv_video_decoder_async(void)
 {
   return 1;
@@ -58,6 +64,9 @@ int ogv_video_decoder_async(void)
   // #endif
 }
 
+#ifdef __cplusplus
+extern "C"
+#endif
 void ogv_video_decoder_destroy(void)
 {
   do_destroy();
@@ -66,6 +75,9 @@ void ogv_video_decoder_destroy(void)
 #endif
 }
 
+#ifdef __cplusplus
+extern "C"
+#endif
 int ogv_video_decoder_process_header(const char *data, size_t data_len)
 {
   // no header packets for VP8/VP9/AV1
@@ -75,6 +87,9 @@ int ogv_video_decoder_process_header(const char *data, size_t data_len)
 #ifdef __EMSCRIPTEN_PTHREADS__
 
 // Send to background worker, then wake main thread on callback
+#ifdef __cplusplus
+extern "C"
+#endif
 int ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
   pthread_mutex_lock(&decode_mutex);
@@ -91,9 +106,9 @@ int ogv_video_decoder_process_frame(const char *data, size_t data_len)
   //   decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
   // }
 
-	decode_queue[decode_queue_end].data = data;
-	decode_queue[decode_queue_end].data_len = data_len;
-	decode_queue_end = (decode_queue_end + 1) % decode_queue_size;  
+  decode_queue[decode_queue_end].data = data;
+  decode_queue[decode_queue_end].data_len = data_len;
+  decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
 
   pthread_cond_signal(&ping_cond);
   pthread_mutex_unlock(&decode_mutex);
@@ -136,11 +151,11 @@ static void call_main_return(void *user_data, int sync)
   cpu_time = right_now;
   if (sync)
   {
-    emscripten_sync_run_in_main_runtime_thread_(EM_FUNC_SIG_VIF, main_thread_return, user_data, (float)delta);
+    emscripten_sync_run_in_main_runtime_thread_(EM_FUNC_SIG_VIF, (void *)&main_thread_return, user_data, (float)delta);
   }
   else
   {
-    emscripten_async_run_in_main_runtime_thread_(EM_FUNC_SIG_VIF, main_thread_return, user_data, (float)delta);
+    emscripten_async_run_in_main_runtime_thread_(EM_FUNC_SIG_VIF, (void *)&main_thread_return, user_data, (float)delta);
   }
 }
 
@@ -149,6 +164,9 @@ static void call_main_return(void *user_data, int sync)
 static int process_frame_status = 0;
 
 // Single-threaded
+#ifdef __cplusplus
+extern "C"
+#endif
 int ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
   // process_frame_status = 0;

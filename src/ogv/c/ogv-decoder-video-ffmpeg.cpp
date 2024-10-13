@@ -17,12 +17,12 @@ extern "C"
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 #include <libswscale/swscale.h>
+#include "ogv-decoder-video.h"
 
 #ifdef __cplusplus
 }
 #endif
 
-#include "ogv-decoder-video.h"
 #include "ogv-thread-support.h"
 #include "decoder-helper.h"
 
@@ -183,7 +183,7 @@ static void do_init(const char *paramsData)
     ffmpegRamDecoder = NULL;
   }
   logCallback("do init 2\n");
-  ffmpegRamDecoder = malloc(sizeof(struct FFmpegRamDecoder));
+  ffmpegRamDecoder = (struct FFmpegRamDecoder *)malloc(sizeof(struct FFmpegRamDecoder));
   if (!ffmpegRamDecoder)
   {
     return;
@@ -213,7 +213,7 @@ static void do_init(const char *paramsData)
     // Here we're initializing conversion context
     pSwsContext = sws_getContext(
         pCodecParams->width, pCodecParams->height,
-        pCodecParams->format,
+        (enum AVPixelFormat)pCodecParams->format,
         pCodecParams->width, pCodecParams->height,
         AV_PIX_FMT_YUV420P,
         SWS_FAST_BILINEAR, NULL, NULL, NULL);
@@ -274,7 +274,7 @@ static AVFrame *getFrameWithPts()
     --packetsInBuffer;
   }
 }
-static AVFrame *copy_image(AVFrame *src)
+static const AVFrame *copy_image(const AVFrame *src)
 {
   return src;
   // AVFrame *dest = av_frame_alloc();
@@ -318,7 +318,7 @@ int checkFrame()
     if (pResultFrame)
     {
       // We found requested frame
-      call_main_return(copy_image(pResultFrame), 1);
+      call_main_return((void *)copy_image(pResultFrame), 1);
       ptsReturned = requestedPts;
       return 1;
     }
@@ -335,7 +335,7 @@ int queuePacketIfNeeded(const char **ppBuf)
   const int64_t pts = readInt64(ppBuf);
   const int64_t dts = readInt64(ppBuf);
   const int32_t packetSize = readInt32(ppBuf);
-  ffmpegRamDecoder->pkt_->data = *ppBuf;
+  ffmpegRamDecoder->pkt_->data = (uint8_t *)*ppBuf;
   ffmpegRamDecoder->pkt_->size = packetSize;
   ffmpegRamDecoder->pkt_->pts = pts;
   ffmpegRamDecoder->pkt_->dts = dts;
@@ -431,13 +431,13 @@ static void process_frame_decode(const char *data, size_t data_len)
   // Need to copy data because it will be free'd by the caller
   // once we call call_main_return from checkFrame (if a frame with requested PTS was found)
   const char *const dataCopy = (const char *)malloc(data_len);
-  const char *pBuf = dataCopy;
-  if (!pBuf)
+  if (!dataCopy)
   {
     logCallback("Failed to allocate %d bytes to copy input data into\n", data_len);
     return;
   }
-  memcpy(pBuf, data, data_len);
+  const char *pBuf = dataCopy;
+  memcpy((void *)pBuf, data, data_len);
   const int32_t packetCount = readInt32(&pBuf);
   if (packetCount == 0)
   {
@@ -474,7 +474,7 @@ static void process_frame_decode(const char *data, size_t data_len)
     }
     // call_main_return(NULL, 0);
   }
-  free(dataCopy);
+  free((void *)dataCopy);
 }
 
 static int process_frame_return(void *image)
