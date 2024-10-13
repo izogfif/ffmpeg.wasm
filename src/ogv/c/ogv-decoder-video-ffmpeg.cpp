@@ -25,6 +25,10 @@ extern "C"
 
 #include "ogv-thread-support.h"
 #include "decoder-helper.h"
+#include <deque>
+
+std::deque<DemuxedPacket> videoPackets;
+std::deque<const AVFrame *> decodedFrames;
 
 struct FFmpegRamDecoder
 {
@@ -45,6 +49,7 @@ int packetsInBuffer = 0;
 double totalSendTime = 0;
 double totalReceiveFrameTime = 0;
 double totalConversionTime = 0;
+const int maxDecodedFrames = 10;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -284,39 +289,39 @@ static AVFrame *getFrameWithPts()
 }
 static const AVFrame *copy_image(const AVFrame *src)
 {
-  return src;
-  // AVFrame *dest = av_frame_alloc();
-  // if (!dest)
-  // {
-  //   logCallback("copy_image failed to allocate frame\n");
-  //   return NULL;
-  // }
-  // // Copy src to dest, see https://stackoverflow.com/a/38809306/156973 for details
-  // dest->format = src->format;
-  // dest->width = src->width;
-  // dest->height = src->height;
-  // dest->channels = src->channels;
-  // dest->channel_layout = src->channel_layout;
-  // dest->nb_samples = src->nb_samples;
-  // int ret = av_frame_get_buffer(dest, 0);
-  // if (ret)
-  // {
-  //   logCallback("av_frame_get_buffer failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-  //   return src;
-  // }
-  // ret = av_frame_copy(dest, src);
-  // if (ret)
-  // {
-  //   logCallback("av_frame_copy failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-  //   return src;
-  // }
-  // ret = av_frame_copy_props(dest, src);
-  // if (ret)
-  // {
-  //   logCallback("av_frame_copy_props failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-  //   return src;
-  // }
-  // return dest;
+  // return src;
+  AVFrame *dest = av_frame_alloc();
+  if (!dest)
+  {
+    logCallback("copy_image failed to allocate frame\n");
+    return NULL;
+  }
+  // Copy src to dest, see https://stackoverflow.com/a/38809306/156973 for details
+  dest->format = src->format;
+  dest->width = src->width;
+  dest->height = src->height;
+  dest->channels = src->channels;
+  dest->channel_layout = src->channel_layout;
+  dest->nb_samples = src->nb_samples;
+  int ret = av_frame_get_buffer(dest, 0);
+  if (ret)
+  {
+    logCallback("av_frame_get_buffer failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return src;
+  }
+  ret = av_frame_copy(dest, src);
+  if (ret)
+  {
+    logCallback("av_frame_copy failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return src;
+  }
+  ret = av_frame_copy_props(dest, src);
+  if (ret)
+  {
+    logCallback("av_frame_copy_props failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return src;
+  }
+  return dest;
 }
 int checkFrame()
 {
@@ -524,7 +529,7 @@ static int process_frame_return(void *image)
   default:
   {
     double conversionStart = emscripten_get_now();
-    frame = getConvertedFrame(frame);
+    AVFrame *pConvertedFrame = getConvertedFrame(frame);
     double conversionEnd = emscripten_get_now();
     conversionTime = conversionEnd - conversionStart;
     totalConversionTime += conversionTime;
@@ -532,6 +537,8 @@ static int process_frame_return(void *image)
     chromaWidth = frame->width >> 1;
     chromaHeight = height >> 1;
     converted = 1;
+    av_frame_free(&frame);
+    frame = pConvertedFrame;
   }
   }
   double frameDecodedTime = emscripten_get_now();
@@ -562,10 +569,7 @@ static int process_frame_return(void *image)
                        frame->width, frame->height,  // crop size
                        0, 0,                         // crop pos
                        frame->width, frame->height); // render size
-  if (converted)
-  {
-    av_frame_free(&frame);
-  }
+  av_frame_free(&frame);
 #ifdef __EMSCRIPTEN_PTHREADS__
   // We were given a copy, so free it.
   // vpx_img_free(image); // todo

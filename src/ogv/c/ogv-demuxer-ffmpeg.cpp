@@ -22,31 +22,6 @@ extern "C"
 #include <deque>
 #include <unordered_map>
 
-class DemuxedPacket
-{
-public:
-  DemuxedPacket(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
-      : m_pts(pts), m_dts(dts), m_dataSize(dataSize), m_pData(dataSize ? (uint8_t *)malloc(m_dataSize) : NULL)
-  {
-    if (dataSize)
-    {
-      memcpy(m_pData, pData, dataSize);
-    }
-  }
-  ~DemuxedPacket()
-  {
-    if (m_pData)
-    {
-      free(m_pData);
-    }
-  }
-
-  const int64_t m_pts;
-  const int64_t m_dts;
-  const uint32_t m_dataSize;
-  uint8_t *m_pData;
-};
-
 std::deque<DemuxedPacket>
     videoPackets;
 

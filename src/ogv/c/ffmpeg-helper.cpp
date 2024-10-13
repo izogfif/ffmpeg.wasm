@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 void logCallback(char const *format, ...)
 {
@@ -30,4 +31,20 @@ void copyInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
   *pBuf += data_size;
   *pSizeCounter += data_size;
   // logCallback("copy_int64: wrote %lld\n", value_to_copy);
+}
+
+DemuxedPacket::DemuxedPacket(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
+    : m_pts(pts), m_dts(dts), m_dataSize(dataSize), m_pData(dataSize ? (uint8_t *)malloc(m_dataSize) : NULL)
+{
+  if (dataSize)
+  {
+    memcpy(m_pData, pData, dataSize);
+  }
+}
+DemuxedPacket::~DemuxedPacket()
+{
+  if (m_pData)
+  {
+    free(m_pData);
+  }
 }

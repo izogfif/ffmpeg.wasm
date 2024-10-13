@@ -1,6 +1,5 @@
 #include "decoder-helper.h"
 
-
 int32_t readInt32(const char **pBuf)
 {
   const int data_size = 4;
@@ -27,13 +26,13 @@ AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase
   const char *pBuf = paramsData;
   pTimeBase->num = readInt32(&pBuf);
   pTimeBase->den = readInt32(&pBuf);
-  pCodecParams->codec_type = readInt32(&pBuf);
-  pCodecParams->codec_id = readInt32(&pBuf);
+  pCodecParams->codec_type = (AVMediaType)readInt32(&pBuf);
+  pCodecParams->codec_id = (AVCodecID)readInt32(&pBuf);
   pCodecParams->codec_tag = readInt32(&pBuf);
   pCodecParams->extradata_size = readInt32(&pBuf);
   if (pCodecParams->extradata_size)
   {
-    pCodecParams->extradata = av_malloc(pCodecParams->extradata_size);
+    pCodecParams->extradata = (uint8_t *)av_malloc(pCodecParams->extradata_size);
     memcpy(pCodecParams->extradata, pBuf, pCodecParams->extradata_size);
     pBuf += pCodecParams->extradata_size;
   }
@@ -47,12 +46,12 @@ AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase
   pCodecParams->height = readInt32(&pBuf);
   pCodecParams->sample_aspect_ratio.num = readInt32(&pBuf);
   pCodecParams->sample_aspect_ratio.den = readInt32(&pBuf);
-  pCodecParams->field_order = readInt32(&pBuf);
-  pCodecParams->color_range = readInt32(&pBuf);
-  pCodecParams->color_primaries = readInt32(&pBuf);
-  pCodecParams->color_trc = readInt32(&pBuf);
-  pCodecParams->color_space = readInt32(&pBuf);
-  pCodecParams->chroma_location = readInt32(&pBuf);
+  pCodecParams->field_order = (AVFieldOrder)readInt32(&pBuf);
+  pCodecParams->color_range = (AVColorRange)readInt32(&pBuf);
+  pCodecParams->color_primaries = (AVColorPrimaries)readInt32(&pBuf);
+  pCodecParams->color_trc = (AVColorTransferCharacteristic)readInt32(&pBuf);
+  pCodecParams->color_space = (AVColorSpace)readInt32(&pBuf);
+  pCodecParams->chroma_location = (AVChromaLocation)readInt32(&pBuf);
   pCodecParams->video_delay = readInt32(&pBuf);
   pCodecParams->sample_rate = readInt32(&pBuf);
   pCodecParams->block_align = readInt32(&pBuf);
@@ -60,7 +59,7 @@ AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase
   pCodecParams->initial_padding = readInt32(&pBuf);
   pCodecParams->trailing_padding = readInt32(&pBuf);
   pCodecParams->seek_preroll = readInt32(&pBuf);
-  pCodecParams->ch_layout.order = readInt32(&pBuf);
+  pCodecParams->ch_layout.order = (AVChannelOrder)readInt32(&pBuf);
   pCodecParams->ch_layout.nb_channels = readInt32(&pBuf);
   if (pCodecParams->ch_layout.order == AV_CHANNEL_ORDER_CUSTOM)
   {

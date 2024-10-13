@@ -50,7 +50,7 @@ CONF_FLAGS=(
   --post-js src/ogv/js/modules/ogv-demuxer.js
   -sASYNCIFY
   -sASYNCIFY_STACK_SIZE=8192
-  src/ogv/c/ffmpeg-helper.c
+  src/ogv/c/ffmpeg-helper.cpp
   src/ogv/c/ogv-buffer-queue.c
   src/ogv/c/ogv-demuxer-ffmpeg.cpp
   src/ogv/c/io-helper.cpp
