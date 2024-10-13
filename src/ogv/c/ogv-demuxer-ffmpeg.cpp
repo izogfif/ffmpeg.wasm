@@ -19,14 +19,13 @@ extern "C"
 #include "ogv-demuxer.h"
 #include "ffmpeg-helper.h"
 #include "io-helper.h"
-#include <deque>
 #include <unordered_map>
 
-std::deque<DemuxedPacket> videoPackets;
 
 int endReached = 0;
 
 static const int packetBufferSize = 20;
+PacketBuffer videoPackets(packetBufferSize);
 
 static bool hasVideo = false;
 static int videoStreamIndex = -1;
@@ -379,9 +378,9 @@ static int processBegin(void)
 
   return 1;
 }
-void putDemuxedPacketToBuffer(AVPacket const *pPacket, const float frameTimestamp, std::deque<DemuxedPacket> &packetBuffer)
+void putDemuxedPacketToBuffer(AVPacket const *pPacket, const float frameTimestamp, PacketBuffer &packetBuffer)
 {
-  while (packetBuffer.size() >= packetBufferSize)
+  while (packetBuffer.isFull())
   {
     packetBuffer.pop_front();
   }
@@ -395,30 +394,30 @@ void putDemuxedPacketToBuffer(AVPacket const *pPacket, const float frameTimestam
 }
 int callVideoCallbackIfBufferIsFull()
 {
-  if (videoPackets.size() != packetBufferSize && !endReached)
+  if (!videoPackets.isFull() && !endReached)
   {
     logCallback("FFmpeg demuxer: not enough packets in buffer (%d / %d) and haven't reached end yet.\n",
-                videoPackets.size(), packetBufferSize);
+                videoPackets.size(), videoPackets.getMaxSize());
     return 0;
   }
   uint32_t resultBufSize = 4 + 8;
-  int64_t requestedPts = -1;
+  int64_t requestedPts = videoPackets.getMinPts();
   logCallback("FFmpeg demuxer: iterating over %d packets in buffer\n", videoPackets.size());
   for (const auto &packet : videoPackets)
   {
     logCallback("FFmpeg demuxer: pts %lld, dts %lld, size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
     resultBufSize += 4 + 8 + 8 + 4 + packet.m_dataSize;
-    if (packet.m_pts > previouslyRequestedPts)
-    {
-      if (requestedPts == -1)
-      {
-        requestedPts = packet.m_pts;
-      }
-      else
-      {
-        requestedPts = FFMIN(requestedPts, packet.m_pts);
-      }
-    }
+    // if (packet.m_pts > previouslyRequestedPts)
+    // {
+    //   if (requestedPts == -1)
+    //   {
+    //     requestedPts = packet.m_pts;
+    //   }
+    //   else
+    //   {
+    //     requestedPts = FFMIN(requestedPts, packet.m_pts);
+    //   }
+    // }
   }
   previouslyRequestedPts = requestedPts;
   logCallback("Writing %d packets into buffer, total size: %d. Requesting pts: %lld\n", videoPackets.size(), resultBufSize, requestedPts);

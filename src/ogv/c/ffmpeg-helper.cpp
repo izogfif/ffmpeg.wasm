@@ -48,3 +48,61 @@ DemuxedPacket::~DemuxedPacket()
     free(m_pData);
   }
 }
+
+PacketBuffer::PacketBuffer(int maxSize) : m_maxSize(maxSize)
+{
+}
+
+int PacketBuffer::size() const
+{
+  return m_videoPackets.size();
+}
+
+int PacketBuffer::getMaxSize() const
+{
+  return m_maxSize;
+}
+
+void PacketBuffer::clear()
+{
+  m_videoPackets.clear();
+  m_ptsToRequest.clear();
+}
+
+bool PacketBuffer::empty() const
+{
+  return size() == 0;
+}
+
+bool PacketBuffer::isFull() const
+{
+  return size() == m_maxSize;
+}
+
+void PacketBuffer::pop_front()
+{
+  const int64_t ptsOfFirstPacket = m_videoPackets.front().m_pts;
+  m_videoPackets.pop_front();
+  m_ptsToRequest.erase(ptsOfFirstPacket);
+}
+
+void PacketBuffer::emplace_back(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
+{
+  m_videoPackets.emplace_back(pts, dts, dataSize, pData);
+  m_ptsToRequest.insert(pts);
+}
+
+int64_t PacketBuffer::getMinPts() const
+{
+  return *m_ptsToRequest.begin();
+}
+
+std::deque<DemuxedPacket>::const_iterator PacketBuffer::begin() const
+{
+  return this->m_videoPackets.begin();
+}
+
+std::deque<DemuxedPacket>::const_iterator PacketBuffer::end() const
+{
+  return this->m_videoPackets.end();
+}
