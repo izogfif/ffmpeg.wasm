@@ -60,7 +60,9 @@ static void free_decoder(struct FFmpegRamDecoder *d)
 static int get_thread_count()
 {
 #ifdef __EMSCRIPTEN_PTHREADS__
-  const int max_cores = 4; // max threads for UHD tiled decoding
+  // Must synchronize with value in ogv-decoder-video.sh:
+  // ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=4}
+  const int max_cores = 2;
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {
@@ -109,7 +111,9 @@ static int reset(struct FFmpegRamDecoder *d)
   d->c_->skip_idct = AVDISCARD_DEFAULT;        // NB: changing this makes no difference
   d->c_->thread_count = get_thread_count();
   // See https://stackoverflow.com/a/69025953/156973
-  if (0) {}
+  if (0)
+  {
+  }
   else if (codec->capabilities & AV_CODEC_CAP_SLICE_THREADS)
     d->c_->thread_type = FF_THREAD_SLICE;
   else if (codec->capabilities & AV_CODEC_CAP_FRAME_THREADS)

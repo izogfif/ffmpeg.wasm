@@ -146,6 +146,10 @@ RUN bash -x /src/build.sh
 
 # Base ffmpeg image with dependencies and source code populated.
 FROM emsdk-base AS ffmpeg-base
+# RUN apt-get update && apt-get install -y libdav1d-dev
+# RUN apt list -a libdav1d-dev
+# RUN echo "PKG_CONFIG_PATH is $PKG_CONFIG_PATH"
+# RUN echo "failing build" && failbuild
 RUN embuilder build sdl2 sdl2-mt
 ADD https://github.com/FFmpeg/FFmpeg.git#$FFMPEG_VERSION /src
 COPY --from=x264-builder $INSTALL_DIR $INSTALL_DIR

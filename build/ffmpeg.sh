@@ -25,6 +25,8 @@ CONF_FLAGS=(
   --extra-cflags="$CFLAGS"
   --extra-cxxflags="$CXXFLAGS"
 
+  # start of selective enabling / disabling features
+
   --disable-iconv
   --disable-schannel
   --disable-symver
@@ -58,8 +60,6 @@ CONF_FLAGS=(
   --disable-avdevice
   --disable-avformat
   --disable-avfilter
-  #--disable-swresample
-  #--disable-swscale
   --disable-postproc
 
   --enable-avcodec
@@ -160,11 +160,9 @@ CONF_FLAGS=(
   --enable-demuxer=wav
   --enable-demuxer=webm_dash_manifest
 
-  # --enable-demuxer='aac,mp3,mov'
-
   --enable-decoder=amv
-  --enable-decoder=libdav1d
-  --enable-decoder=libaom-av1
+  # --enable-decoder=libdav1d
+  --enable-decoder=libaom_av1
   --enable-decoder=av1
   --enable-decoder=avrn
   --enable-decoder=avrp
@@ -306,9 +304,20 @@ CONF_FLAGS=(
   --enable-parser=sbc
   --enable-parser=xwd
 
+  # end of selective enabling / disabling features
+
   # disable thread when FFMPEG_ST is NOT defined
   ${FFMPEG_ST:+ --disable-pthreads --disable-w32threads --disable-os2threads}
 )
+
+echo "FFMPEG --list-decoders"
+emconfigure ./configure --list-decoders
+
+echo "FFMPEG --list-demuxers"
+emconfigure ./configure --list-demuxers
+
+echo "FFMPEG --list-parsers"
+emconfigure ./configure --list-parsers
 
 emconfigure ./configure "${CONF_FLAGS[@]}" $@
 emmake make -j

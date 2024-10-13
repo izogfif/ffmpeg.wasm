@@ -94,8 +94,28 @@ enum AppState
   STATE_SEEKING
 } appState;
 
+void printCodecs()
+{
+  void *data = NULL;
+  const AVCodec *item = NULL;
+  while ((item = av_codec_iterate(&data)))
+  {
+    printf("codec: %s\n", item->name);
+  }
+}
+void printDemuxers()
+{
+  void *data = NULL;
+  const AVInputFormat *item = NULL;
+  while ((item = av_demuxer_iterate(&data)))
+  {
+    printf("demuxer: %s\n", item->name);
+  }
+}
 extern "C" void ogv_demuxer_init(const char *fileSizeAndPath, int len)
 {
+  printCodecs();
+  printDemuxers();
   const int fileSizeSize = 8;
   memcpy(&fileSize, fileSizeAndPath, fileSizeSize);
   logCallback("ogv_demuxer_init with file size: %lld (fileSizeAndPath has length %d)\n", fileSize, len);
@@ -305,7 +325,7 @@ static int processBegin(void)
     uint8_t *pBuf = pBufStart;
     copyInt32(&pBuf, streamTimeBase[videoStreamIndex].num, &bytesWritten);
     copyInt32(&pBuf, streamTimeBase[videoStreamIndex].den, &bytesWritten);
-    
+
     copyInt32(&pBuf, pVideoCodecParameters->codec_type, &bytesWritten);
     copyInt32(&pBuf, pVideoCodecParameters->codec_id, &bytesWritten);
     copyInt32(&pBuf, pVideoCodecParameters->codec_tag, &bytesWritten);

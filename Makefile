@@ -21,16 +21,18 @@ build:
 	FFMPEG_ST="$(FFMPEG_ST)" \
 	FFMPEG_MT="$(FFMPEG_MT)" \
 		docker buildx build \
-			--no-cache-filter=ogv-decoder-video-builder,ogv-demuxer-builder,exportor \
+			--progress=plain \
 			--build-arg EXTRA_CFLAGS \
 			--build-arg EXTRA_LDFLAGS \
 			--build-arg FFMPEG_MT \
 			--build-arg FFMPEG_ST \
 			-o ./packages/core$(PKG_SUFFIX) \
 			$(EXTRA_ARGS) \
-			.
+			. \
+			--no-cache-filter=ogv-decoder-video-builder,ogv-demuxer-builder,exportor
 
 #   --no-cache \
+#		--no-cache-filter=ogv-decoder-video-builder,ogv-demuxer-builder,exportor \
 
 build-st:
 	make build \
