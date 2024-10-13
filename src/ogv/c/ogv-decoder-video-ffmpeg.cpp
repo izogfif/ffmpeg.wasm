@@ -27,8 +27,19 @@ extern "C"
 #include "decoder-helper.h"
 #include <deque>
 
+class DecodedFrame
+{
+public:
+  DecodedFrame(AVFrame *frame) : m_frame(frame) {}
+  ~DecodedFrame()
+  {
+    av_frame_free(&m_frame);
+  }
+  AVFrame *m_frame;
+};
+
 std::deque<DemuxedPacket> videoPackets;
-std::deque<const AVFrame *> decodedFrames;
+std::deque<DecodedFrame> decodedFrames;
 
 struct FFmpegRamDecoder
 {
@@ -45,11 +56,11 @@ int64_t highestDtsQueued = AV_NOPTS_VALUE;
 int64_t ptsReturned = AV_NOPTS_VALUE;
 double decodingStartTime = -1;
 AVRational timeBase = {1, 1};
-int packetsInBuffer = 0;
+int unreceivedPackets = 0;
 double totalSendTime = 0;
 double totalReceiveFrameTime = 0;
 double totalConversionTime = 0;
-const int maxDecodedFrames = 10;
+const int maxDecodedFrames = 5;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -168,10 +179,15 @@ static int reset(struct FFmpegRamDecoder *d)
 #else
   logCallback("PTHREADS disabled\n");
 #endif
-  packetsInBuffer = 0;
+  unreceivedPackets = 0;
   totalSendTime = 0;
   totalReceiveFrameTime = 0;
   totalConversionTime = 0;
+  requestedPts = -1;
+  highestDtsQueued = AV_NOPTS_VALUE;
+  ptsReturned = AV_NOPTS_VALUE;
+  videoPackets.clear();
+  decodedFrames.clear();
   return 0;
 }
 
@@ -249,51 +265,14 @@ void do_destroy(void)
 {
   // should tear instance down, but meh
 }
-static AVFrame *getFrameWithPts()
-{
-  for (;;)
-  {
-    if (ffmpegRamDecoder->frame_)
-    {
-      if (ffmpegRamDecoder->frame_->pts == requestedPts)
-      {
-        logCallback("Obtained frame with requested pts %lld\n", ffmpegRamDecoder->frame_->pts);
-        return ffmpegRamDecoder->frame_;
-      }
-    }
-    double receiveFrameStart = emscripten_get_now();
-    int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
-    double receiveFrameEnd = emscripten_get_now();
-    double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
-    totalReceiveFrameTime += receiveFrameTime;
-    if (ret != 0)
-    {
-      if (ret != AVERROR(EAGAIN))
-      {
-        // This is an actual error, report it
-        logCallback("avcodec_receive_frame failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
-      }
-      return NULL;
-    }
-    logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
-                ffmpegRamDecoder->frame_->pts,
-                ffmpegRamDecoder->frame_->pkt_dts,
-                receiveFrameTime,
-                ffmpegRamDecoder,
-                ffmpegRamDecoder->frame_,
-                ffmpegRamDecoder->frame_->width,
-                ffmpegRamDecoder->frame_->height,
-                ffmpegRamDecoder->frame_->linesize[0]);
-    --packetsInBuffer;
-  }
-}
-static const AVFrame *copy_image(const AVFrame *src)
+
+static AVFrame *copy_image(const AVFrame *src)
 {
   // return src;
   AVFrame *dest = av_frame_alloc();
   if (!dest)
   {
-    logCallback("copy_image failed to allocate frame\n");
+    printf("copy_image failed to allocate frame\n");
     return NULL;
   }
   // Copy src to dest, see https://stackoverflow.com/a/38809306/156973 for details
@@ -306,83 +285,22 @@ static const AVFrame *copy_image(const AVFrame *src)
   int ret = av_frame_get_buffer(dest, 0);
   if (ret)
   {
-    logCallback("av_frame_get_buffer failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-    return src;
+    printf("av_frame_get_buffer failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return NULL;
   }
   ret = av_frame_copy(dest, src);
   if (ret)
   {
-    logCallback("av_frame_copy failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-    return src;
+    printf("av_frame_copy failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return NULL;
   }
   ret = av_frame_copy_props(dest, src);
   if (ret)
   {
-    logCallback("av_frame_copy_props failed. Error code: %d (%s)\n", ret, av_err2str(ret));
-    return src;
+    printf("av_frame_copy_props failed. Error code: %d (%s)\n", ret, av_err2str(ret));
+    return NULL;
   }
   return dest;
-}
-int checkFrame()
-{
-  if (ptsReturned != requestedPts)
-  {
-    const AVFrame *pResultFrame = getFrameWithPts();
-    if (pResultFrame)
-    {
-      // We found requested frame
-      call_main_return((void *)copy_image(pResultFrame), 1);
-      ptsReturned = requestedPts;
-      return 1;
-    }
-  }
-  return 0;
-}
-/**
- * Returns:
- * 1 if packet was queued or skipped because it has already been queued in the past
- * 0 if an error (e.g. AVERROR(EAGAIN)) happened
- */
-int queuePacketIfNeeded(const char **ppBuf)
-{
-  const int64_t pts = readInt64(ppBuf);
-  const int64_t dts = readInt64(ppBuf);
-  const int32_t packetSize = readInt32(ppBuf);
-  ffmpegRamDecoder->pkt_->data = (uint8_t *)*ppBuf;
-  ffmpegRamDecoder->pkt_->size = packetSize;
-  ffmpegRamDecoder->pkt_->pts = pts;
-  ffmpegRamDecoder->pkt_->dts = dts;
-  *ppBuf += packetSize;
-
-  if (dts <= highestDtsQueued)
-  {
-    logCallback("Skipped packet with pts %lld (dts %lld) since highest dts of already queued packet is %lld\n", pts, dts, highestDtsQueued);
-    return 1;
-  }
-  else
-  {
-    logCallback("Queueing packet with pts %lld (dts %lld), packet size: %d\n", pts, dts, packetSize);
-    double sendPacketStart = emscripten_get_now();
-    int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
-    double sendPacketEnd = emscripten_get_now();
-    double sendTime = sendPacketEnd - sendPacketStart;
-    totalSendTime += sendTime;
-    if (ret == AVERROR(EAGAIN))
-    {
-      logCallback("avcodec_send_packet's buffer is full\n");
-      return 0;
-    }
-    if (ret < 0)
-    {
-      logCallback("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
-      return 0;
-    }
-    logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
-    // printf("[%lld, %.3f], \n", ffmpegRamDecoder->pkt_->pts, sendPacketEnd - sendPacketStart);
-    highestDtsQueued = dts;
-    ++packetsInBuffer;
-    return 1;
-  }
 }
 
 AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
@@ -442,54 +360,144 @@ static void process_frame_decode(const char *data, size_t data_len)
     return;
   }
 
-  // const char *pBuf = data;
-  // Need to copy data because it will be free'd by the caller
-  // once we call call_main_return from checkFrame (if a frame with requested PTS was found)
-  const char *const dataCopy = (const char *)malloc(data_len);
-  if (!dataCopy)
-  {
-    logCallback("Failed to allocate %d bytes to copy input data into\n", data_len);
-    return;
-  }
-  const char *pBuf = dataCopy;
-  memcpy((void *)pBuf, data, data_len);
+  const char *pBuf = data;
   const int32_t packetCount = readInt32(&pBuf);
-  if (packetCount == 0)
+  logCallback("Decoding batch of %d packets\n", packetCount);
+  if (requestedPts == -1)
   {
-    // We're in multi-thread mode: data contains only one packet
-    queuePacketIfNeeded(&pBuf);
+    // This is the first frame ever requested
+    decodingStartTime = emscripten_get_now();
   }
-  else
+  requestedPts = readInt64(&pBuf);
+  logCallback("Requested pts %lld\n", requestedPts);
+  // First, add all packets to videoPackets deque (skipping those that are already in deque)
+  for (int i = 0; i < packetCount; ++i)
   {
-    // We are in single-thread mode
-    logCallback("Single-thread mode. Decoding batch of %d packets\n", packetCount);
-    if (requestedPts == -1)
+    const int32_t dummy = readInt32(&pBuf);
+    if (dummy != 0)
     {
-      // This is the first frame ever requested
-      decodingStartTime = emscripten_get_now();
+      logCallback("Invalid packet signature\n");
+      call_main_return(NULL, 0);
+      return;
     }
-    requestedPts = readInt64(&pBuf);
-    logCallback("Requested pts %lld\n", requestedPts);
-    checkFrame();
-    for (int i = 0; i < packetCount; ++i)
+    const int64_t pts = readInt64(&pBuf);
+    const int64_t dts = readInt64(&pBuf);
+    const int32_t packetSize = readInt32(&pBuf);
+    uint8_t *packetData = (uint8_t *)pBuf;
+    pBuf += packetSize;
+    if (videoPackets.empty() || videoPackets.back().m_dts < dts)
     {
-      const int32_t dummy = readInt32(&pBuf);
-      if (dummy != 0)
+      logCallback("Adding packet to buffer. pts = %lld, dts = %lld, current buffer size: %d.\n",
+                  pts, dts, videoPackets.size());
+      videoPackets.emplace_back(pts, dts, packetSize, packetData);
+    }
+    else
+    {
+      logCallback("Skipping packet pts = %lld, dts = %lld, current buffer size: %d.\n",
+                  pts, dts, videoPackets.size());
+    }
+  }
+  for (;;)
+  {
+    // Remove all decoded frames that have pts less than requested one
+    while (!decodedFrames.empty() && decodedFrames.front().m_frame->pts < requestedPts)
+    {
+      logCallback("Removing decoded frame pts = %lld, dts = %lld, current size of decoded frames buffer: %d, requested pts: %lld.\n",
+                  decodedFrames.front().m_frame->pts,
+                  decodedFrames.front().m_frame->pkt_dts,
+                  decodedFrames.size(), requestedPts);
+      decodedFrames.pop_front();
+    }
+    if (ptsReturned != requestedPts)
+    {
+      // Next, check if we've already decoded a frame with requested pts
+      if (!decodedFrames.empty())
       {
-        logCallback("Invalid packet signature\n");
-        call_main_return(NULL, 0);
-        return;
+        const DecodedFrame &firstFrame = decodedFrames.front();
+        if (firstFrame.m_frame->pts == requestedPts)
+        {
+          logCallback("We found requested frame %lld\n", requestedPts);
+          call_main_return((void *)copy_image(firstFrame.m_frame), 1);
+          ptsReturned = requestedPts;
+        }
       }
-      int packetQueued = queuePacketIfNeeded(&pBuf);
-      int packetQueueReadyToReceiveNewPackets = checkFrame();
-      if (!packetQueued && !packetQueueReadyToReceiveNewPackets)
+    }
+    int receivedFrameOrSentPacket = 0;
+    // Now, attempt to receive a single frame and put it in decodedFrames
+    if (decodedFrames.size() < maxDecodedFrames)
+    {
+      logCallback("Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
+                  decodedFrames.size(), maxDecodedFrames);
+      double receiveFrameStart = emscripten_get_now();
+      int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
+      double receiveFrameEnd = emscripten_get_now();
+      double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
+      totalReceiveFrameTime += receiveFrameTime;
+
+      if (ret == AVERROR(EAGAIN))
       {
+        logCallback("Not enough data to receive a frame.\n");
+      }
+      else if (ret != 0)
+      {
+        printf("avcodec_receive_frame failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
+        call_main_return(NULL, 0);
+      }
+      else
+      {
+        logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+                    ffmpegRamDecoder->frame_->pts,
+                    ffmpegRamDecoder->frame_->pkt_dts,
+                    receiveFrameTime,
+                    ffmpegRamDecoder,
+                    ffmpegRamDecoder->frame_,
+                    ffmpegRamDecoder->frame_->width,
+                    ffmpegRamDecoder->frame_->height,
+                    ffmpegRamDecoder->frame_->linesize[0]);
+        decodedFrames.emplace_back(copy_image(ffmpegRamDecoder->frame_));
+        receivedFrameOrSentPacket = 1;
+        --unreceivedPackets;
+      }
+    }
+
+    if (!videoPackets.empty())
+    {
+      const DemuxedPacket &packet = videoPackets.front();
+      logCallback("Attempting to send packet with pts %lld (dts %lld), packet size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
+
+      ffmpegRamDecoder->pkt_->data = packet.m_pData;
+      ffmpegRamDecoder->pkt_->size = packet.m_dataSize;
+      ffmpegRamDecoder->pkt_->pts = packet.m_pts;
+      ffmpegRamDecoder->pkt_->dts = packet.m_dts;
+
+      double sendPacketStart = emscripten_get_now();
+      int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
+      double sendPacketEnd = emscripten_get_now();
+      double sendTime = sendPacketEnd - sendPacketStart;
+      totalSendTime += sendTime;
+      if (ret == AVERROR(EAGAIN))
+      {
+        logCallback("avcodec_send_packet's buffer is full\n");
         break;
       }
+      if (ret < 0)
+      {
+        printf("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
+        break;
+      }
+      logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
+      videoPackets.pop_front();
+      receivedFrameOrSentPacket = 1;
+      ++unreceivedPackets;
     }
-    // call_main_return(NULL, 0);
+    if (!receivedFrameOrSentPacket)
+    {
+      // There is nothing to do here
+      logCallback("Couldn't receive a frame or send a packet, exiting. Unsent packets: %d, decodedFrames: %d, sent but unreceived packetes: %d.\n",
+                  videoPackets.size(), decodedFrames.size(), unreceivedPackets);
+      break;
+    }
   }
-  free((void *)dataCopy);
 }
 
 static int process_frame_return(void *image)
@@ -548,18 +556,21 @@ static int process_frame_return(void *image)
   // To parse this output as JavaScript, copy the output from console
   // and the commented out lines before and after the entire output:
   // cc = [
-  printf("[%lld, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f],\n",
+  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
          requestedPts,
          desiredTime,
          actualTime,
          lag,
-         packetsInBuffer,
+         (totalReceiveFrameTime + totalSendTime + totalConversionTime) / 1000,
+         unreceivedPackets,
          conversionTime,
          totalReceiveFrameTime,
          totalSendTime,
-         totalConversionTime);
+         totalConversionTime,
+         videoPackets.size(),
+         decodedFrames.size());
   // ];
-  // console.log(cc.map(x => `${x[0]}\t${x[1]}\t${x[2]}\t${x[3]}\t${x[4]}`).join('\n'));
+  // console.log(cc.map(x => x.join('\t')).join('\n'));
 
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],

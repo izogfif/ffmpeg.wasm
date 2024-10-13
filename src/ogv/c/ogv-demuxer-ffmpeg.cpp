@@ -22,8 +22,7 @@ extern "C"
 #include <deque>
 #include <unordered_map>
 
-std::deque<DemuxedPacket>
-    videoPackets;
+std::deque<DemuxedPacket> videoPackets;
 
 int endReached = 0;
 
