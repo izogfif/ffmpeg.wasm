@@ -62,7 +62,7 @@ static int get_thread_count()
 #ifdef __EMSCRIPTEN_PTHREADS__
   // Must synchronize with value in ogv-decoder-video.sh:
   // ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=4}
-  const int max_cores = 2;
+  const int max_cores = 4;
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {

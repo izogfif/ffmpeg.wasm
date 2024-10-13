@@ -21,7 +21,7 @@ ENV PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$EM_PKG_CONFIG_PATH
 ENV FFMPEG_ST=$FFMPEG_ST
 ENV FFMPEG_MT=$FFMPEG_MT
 RUN apt-get update && \
-      apt-get install -y pkg-config autoconf automake libtool ragel
+  apt-get install -y pkg-config autoconf automake libtool ragel build-essential meson ninja-build
 
 # Build x264
 FROM emsdk-base AS x264-builder
@@ -136,12 +136,13 @@ COPY build/zimg.sh /src/build.sh
 RUN bash -x /src/build.sh
 
 # Build aom
-FROM emsdk-base AS aom-builder
-ENV AOM_BRANCH=v3.10.0
-#ENV AOM_BRANCH=v1.0.0
+FROM emsdk-base AS dav1d-builder
+ENV DAV1D_BRANCH=1.4.3
 RUN apt-get update && apt-get install -y git
-RUN git clone --recursive --depth 1 --branch $AOM_BRANCH https://aomedia.googlesource.com/aom /src
-COPY build/aom.sh /src/build.sh
+RUN git clone --recursive --depth 1 --branch $DAV1D_BRANCH https://code.videolan.org/videolan/dav1d.git /src
+# COPY build/dav1d-wasm-simd-cross.txt /src/dav1d-wasm-simd-cross.txt
+COPY build/dav1d-wasm-simd-mt-cross.txt /src/dav1d-wasm-simd-mt-cross.txt
+COPY build/dav1d.sh /src/build.sh
 RUN bash -x /src/build.sh
 
 # Base ffmpeg image with dependencies and source code populated.
@@ -162,27 +163,29 @@ COPY --from=vorbis-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=libwebp-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=libass-builder $INSTALL_DIR $INSTALL_DIR
 COPY --from=zimg-builder $INSTALL_DIR $INSTALL_DIR
-COPY --from=aom-builder $INSTALL_DIR $INSTALL_DIR
+# COPY --from=aom-builder $INSTALL_DIR $INSTALL_DIR
+COPY --from=dav1d-builder $INSTALL_DIR $INSTALL_DIR
 
 # Build ffmpeg
 FROM ffmpeg-base AS ffmpeg-builder
 COPY build/ffmpeg.sh /src/build.sh
 RUN bash -x /src/build.sh \
-      --enable-gpl \
-      --enable-libx264 \
-      --enable-libx265 \
-      --enable-libvpx \
-      --enable-libmp3lame \
-      --enable-libtheora \
-      --enable-libvorbis \
-      --enable-libopus \
-      --enable-zlib \
-      --enable-libwebp \
-      --enable-libfreetype \
-      --enable-libfribidi \
-      --enable-libass \
-      --enable-libzimg \
-      --enable-libaom
+  --enable-gpl \
+  --enable-libx264 \
+  --enable-libx265 \
+  --enable-libvpx \
+  --enable-libmp3lame \
+  --enable-libtheora \
+  --enable-libvorbis \
+  --enable-libopus \
+  --enable-zlib \
+  --enable-libwebp \
+  --enable-libfreetype \
+  --enable-libfribidi \
+  --enable-libass \
+  --enable-libzimg \
+  --enable-libdav1d
+# --enable-libaom
 
 # Build ogv-demuxer
 FROM ffmpeg-builder AS ogv-demuxer-builder
@@ -190,29 +193,31 @@ COPY src/ogv /src/src/ogv
 COPY build/ogv-demuxer.sh build.sh
 # libraries to link
 ENV FFMPEG_LIBS \
-      -lx264 \
-      -lx265 \
-      -lvpx \
-      -lmp3lame \
-      -logg \
-      -ltheora \
-      -lvorbis \
-      -lvorbisenc \
-      -lvorbisfile \
-      -lopus \
-      -lz \
-      -lwebpmux \
-      -lwebp \
-      -lsharpyuv \
-      -lfreetype \
-      -lfribidi \
-      -lharfbuzz \
-      -lass \
-      -lzimg \
-      -laom
+  -lx264 \
+  -lx265 \
+  -lvpx \
+  -lmp3lame \
+  -logg \
+  -ltheora \
+  -lvorbis \
+  -lvorbisenc \
+  -lvorbisfile \
+  -lopus \
+  -lz \
+  -lwebpmux \
+  -lwebp \
+  -lsharpyuv \
+  -lfreetype \
+  -lfribidi \
+  -lharfbuzz \
+  -lass \
+  -lzimg \
+  -ldav1d
+# -laom
+
 RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
-      ${FFMPEG_LIBS} \
-      -o dist/umd/ogv-demuxer-ogg.js
+  ${FFMPEG_LIBS} \
+  -o dist/umd/ogv-demuxer-ogg.js
 
 # Build ogv-decoder-video
 FROM ffmpeg-builder AS ogv-decoder-video-builder
@@ -220,31 +225,32 @@ COPY src/ogv /src/src/ogv
 COPY build/ogv-decoder-video.sh build.sh
 # libraries to link
 ENV FFMPEG_LIBS \
-      -lx264 \
-      -lx265 \
-      -lvpx \
-      -lmp3lame \
-      -logg \
-      -ltheora \
-      -lvorbis \
-      -lvorbisenc \
-      -lvorbisfile \
-      -lopus \
-      -lz \
-      -lwebpmux \
-      -lwebp \
-      -lsharpyuv \
-      -lfreetype \
-      -lfribidi \
-      -lharfbuzz \
-      -lass \
-      -lzimg \
-      -laom
+  -lx264 \
+  -lx265 \
+  -lvpx \
+  -lmp3lame \
+  -logg \
+  -ltheora \
+  -lvorbis \
+  -lvorbisenc \
+  -lvorbisfile \
+  -lopus \
+  -lz \
+  -lwebpmux \
+  -lwebp \
+  -lsharpyuv \
+  -lfreetype \
+  -lfribidi \
+  -lharfbuzz \
+  -lass \
+  -lzimg \
+  -ldav1d
+# -laom
 RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
-      ${FFMPEG_LIBS} \
-      -o dist/umd/ogv-decoder-video-theora.js
+  ${FFMPEG_LIBS} \
+  -o dist/umd/ogv-decoder-video-theora.js
 
-      
+
 # Export ffmpeg-core.wasm to dist/, use `docker buildx build -o . .` to get assets
 FROM scratch AS exportor
 COPY --from=ogv-demuxer-builder /src/dist /dist

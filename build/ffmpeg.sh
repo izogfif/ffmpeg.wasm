@@ -161,8 +161,8 @@ CONF_FLAGS=(
   --enable-demuxer=webm_dash_manifest
 
   --enable-decoder=amv
-  # --enable-decoder=libdav1d
-  --enable-decoder=libaom_av1
+  --enable-decoder=libdav1d
+  # --enable-decoder=libaom_av1
   --enable-decoder=av1
   --enable-decoder=avrn
   --enable-decoder=avrp
@@ -310,14 +310,14 @@ CONF_FLAGS=(
   ${FFMPEG_ST:+ --disable-pthreads --disable-w32threads --disable-os2threads}
 )
 
-echo "FFMPEG --list-decoders"
-emconfigure ./configure --list-decoders
+# echo "FFMPEG --list-decoders"
+# emconfigure ./configure --list-decoders
 
-echo "FFMPEG --list-demuxers"
-emconfigure ./configure --list-demuxers
+# echo "FFMPEG --list-demuxers"
+# emconfigure ./configure --list-demuxers
 
-echo "FFMPEG --list-parsers"
-emconfigure ./configure --list-parsers
+# echo "FFMPEG --list-parsers"
+# emconfigure ./configure --list-parsers
 
 emconfigure ./configure "${CONF_FLAGS[@]}" $@
 emmake make -j

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 # To build single-thread:
-make prd
+# make prd
 # To build multi-thread:
-# make prd-mt
+make prd-mt
 cp packages/core/dist/umd/* ../ogv.js/build/demo/lib/
