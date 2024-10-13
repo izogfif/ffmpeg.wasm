@@ -21,7 +21,7 @@ CM_FLAGS=(
   -Denable_asm=true
   -Denable_tests=false
   -Denable_tools=false
-  -Dbitdepths='["8"]'
+  # -Dbitdepths='["8"]'
   -Ddefault_library=static
 )
 
@@ -30,7 +30,8 @@ rm -rf $CMBUILD_DIR
 mkdir -p $CMBUILD_DIR
 cd $CMBUILD_DIR
 
-  # --prefix="$dir/build/wasm/root" \
+# These commands can be added after "meson /src"
+  # -Dbitdepths='["8"]' \
 
 CFLAGS=-pthread \
   LDFLAGS=-pthread \
@@ -40,7 +41,6 @@ CFLAGS=-pthread \
   -Denable_asm=true \
   -Denable_tests=false \
   -Denable_tools=false \
-  -Dbitdepths='["8"]' \
   -Ddefault_library=static \
   --buildtype release && \
   ninja -v && \

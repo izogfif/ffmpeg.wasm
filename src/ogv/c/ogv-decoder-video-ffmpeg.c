@@ -62,7 +62,7 @@ static int get_thread_count()
 #ifdef __EMSCRIPTEN_PTHREADS__
   // Must synchronize with value in ogv-decoder-video.sh:
   // ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=4}
-  const int max_cores = 4;
+  const int max_cores = 8;
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {
@@ -110,17 +110,33 @@ static int reset(struct FFmpegRamDecoder *d)
   d->c_->skip_frame = AVDISCARD_DEFAULT;       //
   d->c_->skip_idct = AVDISCARD_DEFAULT;        // NB: changing this makes no difference
   d->c_->thread_count = get_thread_count();
+  d->c_->debug = 1;
   // See https://stackoverflow.com/a/69025953/156973
+  // Try using multi-threading capabilities in this order: slice, then frame
+  // Decoding h265 video with frame-threading results in high delay
   if (0)
   {
   }
   else if (codec->capabilities & AV_CODEC_CAP_SLICE_THREADS)
+  {
     d->c_->thread_type = FF_THREAD_SLICE;
+    printf("Video decoder supports slice-type multi-threading\n");
+  }
   else if (codec->capabilities & AV_CODEC_CAP_FRAME_THREADS)
+  {
     d->c_->thread_type = FF_THREAD_FRAME;
+    printf("Video decoder supports frame-type multi-threading\n");
+  }
+  else if (codec->capabilities & AV_CODEC_CAP_OTHER_THREADS)
+  {
+    printf("Video decoder supports multithreading through a method other than slice- or frame-level multithreading. Attempting to use %d threads.\n", d->c_->thread_count);
+  }
   else
-    d->c_->thread_count = 1; // don't use multithreading
-
+  {
+    // d->c_->thread_count = 1; // don't use multithreading
+    printf("Video decoder does not support multi-threading.\n");
+  }
+  printf("Decoder was configured to use %d thread(s).\n", d->c_->thread_count);
   if (!(d->pkt_ = av_packet_alloc()))
   {
     logCallback("av_packet_alloc failed\n");
@@ -151,6 +167,7 @@ static int reset(struct FFmpegRamDecoder *d)
 static void do_init(const char *paramsData)
 {
   logCallback("ogv-decoder-video-theora is being initialized\n");
+  // av_log_set_level(AV_LOG_DEBUG);
   pCodecParams = readCodecParams(paramsData, &timeBase);
   if (!pCodecParams)
   {
@@ -483,6 +500,7 @@ static int process_frame_return(void *image)
   int chromaWidth, chromaHeight;
   logCallback("process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
   int oldFormat = frame->format;
+  double conversionTime = 0;
   switch (frame->format)
   {
   case AV_PIX_FMT_YUV420P:
@@ -498,7 +516,8 @@ static int process_frame_return(void *image)
     double conversionStart = emscripten_get_now();
     frame = getConvertedFrame(frame);
     double conversionEnd = emscripten_get_now();
-    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionEnd - conversionStart);
+    conversionTime = conversionEnd - conversionStart;
+    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionTime);
     chromaWidth = frame->width >> 1;
     chromaHeight = height >> 1;
     converted = 1;
@@ -508,12 +527,18 @@ static int process_frame_return(void *image)
   double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
   double desiredTime = requestedPts * av_q2d(timeBase);
   double lag = actualTime - desiredTime;
-  printf("[%lld, %.3f, %.3f, %.3f, %d],\n",
+  // To parse this output as JavaScript, copy the output from console
+  // and the commented out lines before and after the entire output:
+  // cc = [
+  printf("[%lld, %.3f, %.3f, %.3f, %d, %.3f],\n",
          requestedPts,
          desiredTime,
          actualTime,
          lag,
-         packetsInBuffer);
+         packetsInBuffer,
+         conversionTime);
+  // ];
+  // console.log(cc.map(x => `${x[0]}\t${x[1]}\t${x[2]}\t${x[3]}\t${x[4]}`).join('\n'));
 
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],

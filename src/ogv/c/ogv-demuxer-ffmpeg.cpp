@@ -114,8 +114,8 @@ void printDemuxers()
 }
 extern "C" void ogv_demuxer_init(const char *fileSizeAndPath, int len)
 {
-  printCodecs();
-  printDemuxers();
+  // printCodecs();
+  // printDemuxers();
   const int fileSizeSize = 8;
   memcpy(&fileSize, fileSizeAndPath, fileSizeSize);
   logCallback("ogv_demuxer_init with file size: %lld (fileSizeAndPath has length %d)\n", fileSize, len);
