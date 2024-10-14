@@ -82,7 +82,7 @@ static int get_thread_count()
 #ifdef __EMSCRIPTEN_PTHREADS__
   // Must synchronize with value in ogv-decoder-video.sh:
   // ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=4}
-  const int max_cores = 8;
+  const int max_cores = 4;
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {
@@ -560,29 +560,31 @@ static int process_frame_return(void *image)
   double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
   double desiredTime = frame->pts * av_q2d(timeBase);
   double lag = actualTime - desiredTime;
-  double totalWorkTime = totalReceiveFrameTime + totalSendTime + totalConversionTime;
-  double workLagTime = totalWorkTime / 1000.0 - desiredTime;
+  double totalWorkTime = (totalReceiveFrameTime + totalSendTime + totalConversionTime) / 1000.0;
+  double workLagTime = totalWorkTime - desiredTime;
   // To parse this output as JavaScript, copy the output from console
   // and the commented out lines before and after the entire output:
-  // cc = [
-  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
+  /*
+  cc = [
+  */
+  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
          frame->pts,
          desiredTime,
          actualTime,
          lag,
-         (totalReceiveFrameTime + totalSendTime + totalConversionTime) / 1000,
+         totalWorkTime,
          unreceivedPackets,
          conversionTime,
          totalReceiveFrameTime,
          totalSendTime,
          totalConversionTime,
-         totalWorkTime,
          workLagTime,
          (int)videoPackets.size(),
          (int)decodedFrames.size());
-  // ];
-  // console.log(cc.map(x => x.join('\t')).join('\n'));
-
+  /*
+    ];
+    console.log(cc.map(x => x.join('\t')).join('\n'));
+  */
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],
                        frame->data[2], frame->linesize[2],
