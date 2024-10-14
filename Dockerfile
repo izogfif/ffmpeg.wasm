@@ -1,3 +1,6 @@
+# syntax=docker/dockerfile-upstream:master-labs
+# The line above is required in order for "ADD https://github.com/..." lines to work
+
 # Base emsdk image with environment variables.
 FROM --platform=linux/amd64 emscripten/emsdk:3.1.40@sha256:c1e807a6e03ac5bd5b37bae2ace3c46c08579e2ddeb951037a3b8dac7067f2cc AS emsdk-base
 #FROM --platform=linux/amd64 emscripten/emsdk:3.1.49@sha256:b35d43d2927648cc4e026aecbdc05c5ffdc8a2b72d7e085e0a836510ff2e0004 AS emsdk-base
