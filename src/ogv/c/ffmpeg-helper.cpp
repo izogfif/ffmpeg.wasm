@@ -83,7 +83,7 @@ void PacketBuffer::pop_front()
 {
   const int64_t ptsOfFirstPacket = m_videoPackets.front().m_pts;
   m_videoPackets.pop_front();
-  m_ptsToRequest.erase(ptsOfFirstPacket);
+  m_ptsToRequest.erase(m_ptsToRequest.begin());
 }
 
 void PacketBuffer::emplace_back(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)

@@ -30,13 +30,20 @@ static void *decode_thread_run(void *);
 
 static void do_init(const char *paramsData);
 static void do_destroy(void);
-static void process_frame_decode(const char *data, size_t data_len);
+static void read_input(const char *data, size_t data_len);
+/**
+ * Attempts to receive a frame or send a packet.
+ * Returns true if a frame was received or a packet was sent.
+ * If failed to both receive a frame and to send a packet, returns false.
+ */
+static bool try_processing();
 static int process_frame_return(void *user_data);
 
 #ifdef __cplusplus
 extern "C"
 #endif
-void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
+    void
+    ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
 {
 #ifdef __EMSCRIPTEN_PTHREADS__
   pthread_mutex_init(&decode_mutex, NULL);
@@ -54,7 +61,8 @@ void ogv_video_decoder_init(const char *paramsData, int paramsDataLength)
 #ifdef __cplusplus
 extern "C"
 #endif
-int ogv_video_decoder_async(void)
+    int
+    ogv_video_decoder_async(void)
 {
   return 1;
   // #ifdef __EMSCRIPTEN_PTHREADS__
@@ -67,7 +75,8 @@ int ogv_video_decoder_async(void)
 #ifdef __cplusplus
 extern "C"
 #endif
-void ogv_video_decoder_destroy(void)
+    void
+    ogv_video_decoder_destroy(void)
 {
   do_destroy();
 #ifdef __EMSCRIPTEN_PTHREADS__
@@ -78,7 +87,8 @@ void ogv_video_decoder_destroy(void)
 #ifdef __cplusplus
 extern "C"
 #endif
-int ogv_video_decoder_process_header(const char *data, size_t data_len)
+    int
+    ogv_video_decoder_process_header(const char *data, size_t data_len)
 {
   // no header packets for VP8/VP9/AV1
   return 0;
@@ -90,9 +100,12 @@ int ogv_video_decoder_process_header(const char *data, size_t data_len)
 #ifdef __cplusplus
 extern "C"
 #endif
-int ogv_video_decoder_process_frame(const char *data, size_t data_len)
+    int
+    ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
+  logCallback("ogv_video_decoder_process_frame: started for packet with size %d\n", (int)data_len);
   pthread_mutex_lock(&decode_mutex);
+  logCallback("ogv_video_decoder_process_frame: obtained mutex\n");
 
   // // Slice data and fill decode_queue with individual chunks
   // const uint8_t *pBuf = data;
@@ -108,10 +121,13 @@ int ogv_video_decoder_process_frame(const char *data, size_t data_len)
 
   decode_queue[decode_queue_end].data = data;
   decode_queue[decode_queue_end].data_len = data_len;
+  logCallback("ogv_video_decoder_process_frame: wrote data to slot %d\n", decode_queue_end);
   decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
 
   pthread_cond_signal(&ping_cond);
+  logCallback("ogv_video_decoder_process_frame: sent a signal\n");
   pthread_mutex_unlock(&decode_mutex);
+  logCallback("ogv_video_decoder_process_frame: released mutex\n");
   return 1;
 }
 
@@ -125,22 +141,60 @@ static void main_thread_return(void *user_data, float delta)
 static void *decode_thread_run(void *paramsData)
 {
   do_init((const char *)paramsData);
+  bool didNothing = true;
+  bool mutexLocked = false;
   while (1)
   {
-    pthread_mutex_lock(&decode_mutex);
-    while (decode_queue_end == decode_queue_start)
+    didNothing = true;
+    if (!mutexLocked)
     {
-      pthread_cond_wait(&ping_cond, &decode_mutex);
+      logCallback("decode_thread_run: getting mutex\n");
+      pthread_mutex_lock(&decode_mutex);
+      logCallback("decode_thread_run: obtained mutex\n");
+      mutexLocked = true;
     }
-    decode_queue_t item;
-    item = decode_queue[decode_queue_start];
-    decode_queue_start = (decode_queue_start + 1) % decode_queue_size;
-    pthread_mutex_unlock(&decode_mutex);
-
-    cpu_time = emscripten_get_now() - cpu_delta;
-    process_frame_decode(item.data, item.data_len);
-    // Capture any CPU time that didn't result in a frame
-    cpu_delta = emscripten_get_now() - cpu_time;
+    if (decode_queue_end != decode_queue_start)
+    {
+      logCallback("decode_thread_run: got some input\n");
+      decode_queue_t item;
+      item = decode_queue[decode_queue_start];
+      decode_queue_start = (decode_queue_start + 1) % decode_queue_size;
+      pthread_mutex_unlock(&decode_mutex);
+      mutexLocked = false;
+      cpu_time = emscripten_get_now() - cpu_delta;
+      read_input(item.data, item.data_len);
+      // Capture any CPU time that didn't result in a frame
+      cpu_delta = emscripten_get_now() - cpu_time;
+      didNothing = false;
+    }
+    else
+    {
+      logCallback("decode_thread_run: no input. End slot: %d\n", decode_queue_start);
+    }
+    if (try_processing())
+    {
+      didNothing = false;
+    }
+    if (didNothing)
+    {
+      if (!mutexLocked)
+      {
+        logCallback("decode_thread_run: did nothing, getting mutex\n");
+        pthread_mutex_lock(&decode_mutex);
+        logCallback("decode_thread_run: did nothing, obtained mutex\n");
+      }
+      else
+      {
+        logCallback("decode_thread_run: did nothing, mutex is already obtained\n");
+      }
+      // while (decode_queue_end == decode_queue_start)
+      // {
+      logCallback("decode_thread_run: did nothing, waiting for ping_cond\n");
+      pthread_cond_wait(&ping_cond, &decode_mutex);
+      logCallback("decode_thread_run: did nothing, got ping_cond\n");
+      mutexLocked = true;
+      // }
+    }
   }
 }
 
@@ -167,11 +221,16 @@ static int process_frame_status = 0;
 #ifdef __cplusplus
 extern "C"
 #endif
-int ogv_video_decoder_process_frame(const char *data, size_t data_len)
+    int
+    ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
   // process_frame_status = 0;
   // cpu_time = emscripten_get_now() - cpu_delta;
-  process_frame_decode(data, data_len);
+  read_input(data, data_len);
+  while (try_processing())
+  {
+    // Do nothing
+  }
   return 1;
   // return process_frame_status;
 }

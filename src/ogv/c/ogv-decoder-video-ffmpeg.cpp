@@ -23,8 +23,8 @@ extern "C"
 }
 #endif
 
-#include "ogv-thread-support.h"
 #include "decoder-helper.h"
+#include "ogv-thread-support.h"
 #include <deque>
 
 class DecodedFrame
@@ -40,6 +40,8 @@ public:
 
 std::deque<DemuxedPacket> videoPackets;
 std::deque<DecodedFrame> decodedFrames;
+std::deque<int64_t> requestedPts;
+bool firstEverPts = true;
 
 struct FFmpegRamDecoder
 {
@@ -51,7 +53,6 @@ struct FFmpegRamDecoder
 static struct FFmpegRamDecoder *ffmpegRamDecoder = NULL;
 static AVCodecParameters *pCodecParams = NULL;
 static struct SwsContext *pSwsContext = NULL;
-int64_t requestedPts = -1;
 int64_t highestDtsQueued = AV_NOPTS_VALUE;
 int64_t ptsReturned = AV_NOPTS_VALUE;
 double decodingStartTime = -1;
@@ -122,7 +123,7 @@ static int reset(struct FFmpegRamDecoder *d)
     return -1;
   }
 
-  d->c_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+  // d->c_->flags |= AV_CODEC_FLAG_LOW_DELAY;
   // See https://gist.github.com/jimj316/931b8ccbbdbcb5b2d3337879b4829e25#file-main-cpp-L137
   d->c_->flags2 |= AV_CODEC_FLAG2_FAST;
   d->c_->skip_loop_filter = AVDISCARD_DEFAULT; // NB: changing this makes no difference
@@ -183,11 +184,12 @@ static int reset(struct FFmpegRamDecoder *d)
   totalSendTime = 0;
   totalReceiveFrameTime = 0;
   totalConversionTime = 0;
-  requestedPts = -1;
+  requestedPts.clear();
   highestDtsQueued = AV_NOPTS_VALUE;
   ptsReturned = AV_NOPTS_VALUE;
   videoPackets.clear();
   decodedFrames.clear();
+  firstEverPts = true;
   return 0;
 }
 
@@ -351,7 +353,7 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
   return pConvertedFrame;
 }
 
-static void process_frame_decode(const char *data, size_t data_len)
+static void read_input(const char *data, size_t data_len)
 {
   if (!data)
   {
@@ -363,13 +365,14 @@ static void process_frame_decode(const char *data, size_t data_len)
   const char *pBuf = data;
   const int32_t packetCount = readInt32(&pBuf);
   logCallback("Decoding batch of %d packets\n", packetCount);
-  if (requestedPts == -1)
+  if (firstEverPts)
   {
     // This is the first frame ever requested
     decodingStartTime = emscripten_get_now();
+    firstEverPts = false;
   }
-  requestedPts = readInt64(&pBuf);
-  logCallback("Requested pts %lld\n", requestedPts);
+  requestedPts.push_back(readInt64(&pBuf));
+  logCallback("Requested pts %lld\n", requestedPts.back());
   // First, add all packets to videoPackets deque (skipping those that are already in deque)
   for (int i = 0; i < packetCount; ++i)
   {
@@ -397,107 +400,111 @@ static void process_frame_decode(const char *data, size_t data_len)
                   pts, dts, videoPackets.size());
     }
   }
-  for (;;)
+}
+static bool try_processing()
+{
+  logCallback("try_processing\n");
+  if (!requestedPts.empty())
   {
+    int64_t oldestRequestedPts = requestedPts.front();
     // Remove all decoded frames that have pts less than requested one
-    while (!decodedFrames.empty() && decodedFrames.front().m_frame->pts < requestedPts)
+    while (!decodedFrames.empty() && decodedFrames.front().m_frame->pts < oldestRequestedPts)
     {
       logCallback("Removing decoded frame pts = %lld, dts = %lld, current size of decoded frames buffer: %d, requested pts: %lld.\n",
                   decodedFrames.front().m_frame->pts,
                   decodedFrames.front().m_frame->pkt_dts,
-                  decodedFrames.size(), requestedPts);
+                  decodedFrames.size(), oldestRequestedPts);
       decodedFrames.pop_front();
     }
-    if (ptsReturned != requestedPts)
+    if (ptsReturned != oldestRequestedPts)
     {
       // Next, check if we've already decoded a frame with requested pts
       if (!decodedFrames.empty())
       {
         const DecodedFrame &firstFrame = decodedFrames.front();
-        if (firstFrame.m_frame->pts == requestedPts)
+        if (firstFrame.m_frame->pts == oldestRequestedPts)
         {
-          logCallback("We found requested frame %lld\n", requestedPts);
+          logCallback("We found requested frame %lld\n", oldestRequestedPts);
           call_main_return((void *)copy_image(firstFrame.m_frame), 1);
-          ptsReturned = requestedPts;
+          ptsReturned = oldestRequestedPts;
+          requestedPts.pop_front();
+          return true;
         }
       }
     }
-    int receivedFrameOrSentPacket = 0;
-    // Now, attempt to receive a single frame and put it in decodedFrames
-    if (decodedFrames.size() < maxDecodedFrames)
-    {
-      logCallback("Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
-                  decodedFrames.size(), maxDecodedFrames);
-      double receiveFrameStart = emscripten_get_now();
-      int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
-      double receiveFrameEnd = emscripten_get_now();
-      double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
-      totalReceiveFrameTime += receiveFrameTime;
+  }
+  // Now, attempt to receive a single frame and put it in decodedFrames
+  if (decodedFrames.size() < maxDecodedFrames)
+  {
+    logCallback("Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
+                decodedFrames.size(), maxDecodedFrames);
+    double receiveFrameStart = emscripten_get_now();
+    int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
+    double receiveFrameEnd = emscripten_get_now();
+    double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
+    totalReceiveFrameTime += receiveFrameTime;
 
-      if (ret == AVERROR(EAGAIN))
-      {
-        logCallback("Not enough data to receive a frame.\n");
-      }
-      else if (ret != 0)
-      {
-        printf("avcodec_receive_frame failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
-        call_main_return(NULL, 0);
-      }
-      else
-      {
-        logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
-                    ffmpegRamDecoder->frame_->pts,
-                    ffmpegRamDecoder->frame_->pkt_dts,
-                    receiveFrameTime,
-                    ffmpegRamDecoder,
-                    ffmpegRamDecoder->frame_,
-                    ffmpegRamDecoder->frame_->width,
-                    ffmpegRamDecoder->frame_->height,
-                    ffmpegRamDecoder->frame_->linesize[0]);
-        decodedFrames.emplace_back(copy_image(ffmpegRamDecoder->frame_));
-        receivedFrameOrSentPacket = 1;
-        --unreceivedPackets;
-      }
+    if (ret == AVERROR(EAGAIN))
+    {
+      logCallback("Not enough data to receive a frame.\n");
     }
-
-    if (!videoPackets.empty())
+    else if (ret != 0)
     {
-      const DemuxedPacket &packet = videoPackets.front();
-      logCallback("Attempting to send packet with pts %lld (dts %lld), packet size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
-
-      ffmpegRamDecoder->pkt_->data = packet.m_pData;
-      ffmpegRamDecoder->pkt_->size = packet.m_dataSize;
-      ffmpegRamDecoder->pkt_->pts = packet.m_pts;
-      ffmpegRamDecoder->pkt_->dts = packet.m_dts;
-
-      double sendPacketStart = emscripten_get_now();
-      int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
-      double sendPacketEnd = emscripten_get_now();
-      double sendTime = sendPacketEnd - sendPacketStart;
-      totalSendTime += sendTime;
-      if (ret == AVERROR(EAGAIN))
-      {
-        logCallback("avcodec_send_packet's buffer is full\n");
-        break;
-      }
-      if (ret < 0)
-      {
-        printf("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
-        break;
-      }
-      logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
-      videoPackets.pop_front();
-      receivedFrameOrSentPacket = 1;
-      ++unreceivedPackets;
+      printf("avcodec_receive_frame failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
+      call_main_return(NULL, 0);
     }
-    if (!receivedFrameOrSentPacket)
+    else
     {
-      // There is nothing to do here
-      logCallback("Couldn't receive a frame or send a packet, exiting. Unsent packets: %d, decodedFrames: %d, sent but unreceived packetes: %d.\n",
-                  videoPackets.size(), decodedFrames.size(), unreceivedPackets);
-      break;
+      logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+                  ffmpegRamDecoder->frame_->pts,
+                  ffmpegRamDecoder->frame_->pkt_dts,
+                  receiveFrameTime,
+                  ffmpegRamDecoder,
+                  ffmpegRamDecoder->frame_,
+                  ffmpegRamDecoder->frame_->width,
+                  ffmpegRamDecoder->frame_->height,
+                  ffmpegRamDecoder->frame_->linesize[0]);
+      decodedFrames.emplace_back(copy_image(ffmpegRamDecoder->frame_));
+      --unreceivedPackets;
+      return true;
     }
   }
+
+  if (!videoPackets.empty())
+  {
+    const DemuxedPacket &packet = videoPackets.front();
+    logCallback("Attempting to send packet with pts %lld (dts %lld), packet size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
+
+    ffmpegRamDecoder->pkt_->data = packet.m_pData;
+    ffmpegRamDecoder->pkt_->size = packet.m_dataSize;
+    ffmpegRamDecoder->pkt_->pts = packet.m_pts;
+    ffmpegRamDecoder->pkt_->dts = packet.m_dts;
+
+    double sendPacketStart = emscripten_get_now();
+    int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
+    double sendPacketEnd = emscripten_get_now();
+    double sendTime = sendPacketEnd - sendPacketStart;
+    totalSendTime += sendTime;
+    if (ret == AVERROR(EAGAIN))
+    {
+      logCallback("avcodec_send_packet's buffer is full\n");
+    }
+    else if (ret < 0)
+    {
+      printf("avcodec_send_packet failed, ret=%d, msg=%s\n", ret, av_err2str(ret));
+    }
+    else
+    {
+      logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
+      videoPackets.pop_front();
+      ++unreceivedPackets;
+      return true;
+    }
+  }
+  // There is nothing to do here
+  logCallback("Couldn't receive a frame or send a packet, exiting. Unsent packets: %d, decodedFrames: %d, sent but unreceived packetes: %d.\n",
+              videoPackets.size(), decodedFrames.size(), unreceivedPackets);
+  return false;
 }
 
 static int process_frame_return(void *image)
@@ -541,8 +548,8 @@ static int process_frame_return(void *image)
     double conversionEnd = emscripten_get_now();
     conversionTime = conversionEnd - conversionStart;
     totalConversionTime += conversionTime;
-    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, frame->format, conversionTime);
-    chromaWidth = frame->width >> 1;
+    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, pConvertedFrame->format, conversionTime);
+    chromaWidth = pConvertedFrame->width >> 1;
     chromaHeight = height >> 1;
     converted = 1;
     av_frame_free(&frame);
@@ -551,13 +558,15 @@ static int process_frame_return(void *image)
   }
   double frameDecodedTime = emscripten_get_now();
   double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
-  double desiredTime = requestedPts * av_q2d(timeBase);
+  double desiredTime = frame->pts * av_q2d(timeBase);
   double lag = actualTime - desiredTime;
+  double totalWorkTime = totalReceiveFrameTime + totalSendTime + totalConversionTime;
+  double workLagTime = totalWorkTime / 1000.0 - desiredTime;
   // To parse this output as JavaScript, copy the output from console
   // and the commented out lines before and after the entire output:
   // cc = [
-  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
-         requestedPts,
+  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
+         frame->pts,
          desiredTime,
          actualTime,
          lag,
@@ -567,8 +576,10 @@ static int process_frame_return(void *image)
          totalReceiveFrameTime,
          totalSendTime,
          totalConversionTime,
-         videoPackets.size(),
-         decodedFrames.size());
+         totalWorkTime,
+         workLagTime,
+         (int)videoPackets.size(),
+         (int)decodedFrames.size());
   // ];
   // console.log(cc.map(x => x.join('\t')).join('\n'));
 
