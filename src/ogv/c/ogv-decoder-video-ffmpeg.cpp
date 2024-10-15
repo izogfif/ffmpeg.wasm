@@ -61,7 +61,7 @@ int unreceivedPackets = 0;
 double totalSendTime = 0;
 double totalReceiveFrameTime = 0;
 double totalConversionTime = 0;
-const int maxDecodedFrames = 5;
+const int maxDecodedFrames = 3;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
