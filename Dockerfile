@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile-upstream:master-labs
+# syntax=docker/dockerfile-upstream:master-labs@sha256:fd5f8eef1b42158f6f148de7ab191aa932a92a3bd5b82f5e0fbf89413d825263
 # The line above is required in order for "ADD https://github.com/..." lines to work
 
 # Base emsdk image with environment variables.
@@ -35,8 +35,8 @@ RUN bash -x /src/build.sh
 
 # Build x265
 FROM emsdk-base AS x265-builder
-ENV X265_BRANCH=3.4
-ADD https://github.com/ffmpegwasm/x265.git#$X265_BRANCH /src
+ENV X265_BRANCH=4.0
+ADD https://bitbucket.org/multicoreware/x265_git.git#$X265_BRANCH /src
 COPY build/x265.sh /src/build.sh
 RUN bash -x /src/build.sh
 
