@@ -89,6 +89,12 @@ void printDemuxers()
 extern "C" void ogv_demuxer_init(const char *initOptions, int len)
 {
   printf("FFmpeg demuxer: ogv_demuxer_init started.\n");
+#ifdef __EMSCRIPTEN_PTHREADS__
+  logMessage("FFmpeg demuxer: PTHREADS enabled\n");
+#else
+  logMessage("FFmpeg demuxer: PTHREADS disabled\n");
+#endif
+
   // printCodecs();
   // printDemuxers();
   const char *pBuf = initOptions;
@@ -584,7 +590,7 @@ extern "C" int ogv_demuxer_process(void)
   const int64_t data_available = bq_headroom(bufferQueue);
   const int64_t bytes_until_end = fileSize - bufferQueue->pos;
   // logMessage("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
-  printf("%lld\n", data_available);
+  printf("%lld\n", bufferQueue->pos);
 
   if (data_available < minBufSize && bytes_until_end > data_available)
   {

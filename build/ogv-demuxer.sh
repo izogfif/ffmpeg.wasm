@@ -38,7 +38,8 @@ CONF_FLAGS=(
   # ${FFMPEG_MT:+ -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH}   # ALLOW_MEMORY_GROWTH is not recommended when using threads, thus we use a large initial memory
   # ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=8}    # use 32 threads
   # ${FFMPEG_ST:+ -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=100MB} # Use just enough memory as memory usage can grow
-  -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=100MB
+  # -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=100MB
+  -sINITIAL_MEMORY=128MB -sTOTAL_STACK=100MB
   -sEXPORT_NAME="$EXPORT_NAME"             # required in browser env, so that user can access this module from window object
 #  -sEXPORTED_FUNCTIONS=$(node src/bind/ffmpeg/export.js) # exported functions
   -sEXPORTED_FUNCTIONS=$(node src/ogv/js/modules/ogv-demuxer-exports.js)
@@ -48,8 +49,10 @@ CONF_FLAGS=(
   --js-library src/ogv/js/modules/ogv-demuxer-callbacks.js
   --pre-js src/ogv/js/modules/ogv-module-pre.js
   --post-js src/ogv/js/modules/ogv-demuxer.js
-  -sASYNCIFY
-  -sASYNCIFY_STACK_SIZE=8192
+  # -sASYNCIFY
+  # -sASYNCIFY_STACK_SIZE=8192
+  -sJSPI
+  -s NO_FILESYSTEM=1
   src/ogv/c/ffmpeg-helper.cpp
   src/ogv/c/ogv-buffer-queue.c
   src/ogv/c/ogv-demuxer-ffmpeg.cpp

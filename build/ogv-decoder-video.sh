@@ -37,7 +37,7 @@ CONF_FLAGS=(
   -s VERBOSE=1
   ${FFMPEG_MT:+ -sINITIAL_MEMORY=256MB}   # ALLOW_MEMORY_GROWTH is not recommended when using threads, thus we use a large initial memory
   # ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=8}
-  ${FFMPEG_ST:+ -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=100MB} # Use just enough memory as memory usage can grow
+  # ${FFMPEG_ST:+ -sINITIAL_MEMORY=128MB -sALLOW_MEMORY_GROWTH -sTOTAL_STACK=100MB} # Use just enough memory as memory usage can grow
   -sEXPORT_NAME="$EXPORT_NAME"             # required in browser env, so that user can access this module from window object
 #  -sEXPORTED_FUNCTIONS=$(node src/bind/ffmpeg/export.js) # exported functions
   -sEXPORTED_FUNCTIONS=$(node src/ogv/js/modules/ogv-decoder-video-exports.js)
@@ -49,6 +49,8 @@ CONF_FLAGS=(
   --post-js src/ogv/js/modules/ogv-decoder-video.js
   # -sASYNCIFY
   # -sASYNCIFY_STACK_SIZE=8192
+  -s NO_FILESYSTEM=1
+  -sUSE_PTHREADS -pthread
   src/ogv/c/ffmpeg-helper.cpp
   src/ogv/c/decoder-helper.cpp
   src/ogv/c/ogv-decoder-video-ffmpeg.cpp

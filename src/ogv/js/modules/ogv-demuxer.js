@@ -150,18 +150,17 @@ Module["init"] = function (
   packetBufferSize,
   decodedFrameBufferSize,
   fileSize,
-  file
 ) {
   time(function () {
     let fileName = '';
-    if (file) {
-      const folderName = "data-" + Date.now();
-      Module.FS.mkdir(folderName);
-      const fileWithProperNameAndExt = new File([file], `1.dat`);
-      const fs = Module.FS.filesystems.WORKERFS;
-      Module.FS.mount(fs, { files: [fileWithProperNameAndExt] }, folderName);
-      fileName = `${folderName}/${fileWithProperNameAndExt.name}`;
-    }
+    // if (file) {
+    //   const folderName = "data-" + Date.now();
+    //   Module.FS.mkdir(folderName);
+    //   const fileWithProperNameAndExt = new File([file], `1.dat`);
+    //   const fs = Module.FS.filesystems.WORKERFS;
+    //   Module.FS.mount(fs, { files: [fileWithProperNameAndExt] }, folderName);
+    //   fileName = `${folderName}/${fileWithProperNameAndExt.name}`;
+    // }
     // var urlBytes = new TextEncoder().encode(fileName);
     // var len = 4 + 8 + urlBytes.byteLength;
     var len = 4 * 5 + 8;
