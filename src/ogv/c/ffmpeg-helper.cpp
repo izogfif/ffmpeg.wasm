@@ -4,9 +4,11 @@
 #include <string.h>
 #include <stdlib.h>
 
-void logCallback(char const *format, ...)
+bool loggingEnabled = true;
+
+void logMessage(char const *format, ...)
 {
-  if (DEBUG_ENABLED)
+  if (loggingEnabled)
   {
     va_list args;
     va_start(args, format);
@@ -15,23 +17,44 @@ void logCallback(char const *format, ...)
   }
 }
 
-void copyInt32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
+void writeInt32(uint8_t **pBuf, int32_t value_to_copy, uint32_t *pSizeCounter)
 {
   const int data_size = 4;
   memcpy(*pBuf, &value_to_copy, data_size);
   *pBuf += data_size;
   *pSizeCounter += data_size;
-  // logCallback("copy_int32: wrote %d\n", value_to_copy);
+  // logMessage("copy_int32: wrote %d\n", value_to_copy);
 }
 
-void copyInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
+void writeInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter)
 {
   const int data_size = 8;
   memcpy(*pBuf, &value_to_copy, data_size);
   *pBuf += data_size;
   *pSizeCounter += data_size;
-  // logCallback("copy_int64: wrote %lld\n", value_to_copy);
+  // logMessage("copy_int64: wrote %lld\n", value_to_copy);
 }
+
+int32_t readInt32(const char **pBuf)
+{
+  const int data_size = 4;
+  int32_t result = -1;
+  memcpy(&result, *pBuf, data_size);
+  *pBuf += data_size;
+  // logMessage("readInt32: got %d\n", result);
+  return result;
+}
+
+int64_t readInt64(const char **pBuf)
+{
+  const int data_size = 8;
+  int64_t result = -1;
+  memcpy(&result, *pBuf, data_size);
+  *pBuf += data_size;
+  // logMessage("readInt64: got %lld\n", result);
+  return result;
+}
+
 
 DemuxedPacket::DemuxedPacket(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
     : m_pts(pts), m_dts(dts), m_dataSize(dataSize), m_pData(dataSize ? (uint8_t *)malloc(m_dataSize) : NULL)

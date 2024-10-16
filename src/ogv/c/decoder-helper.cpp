@@ -1,25 +1,5 @@
 #include "decoder-helper.h"
 
-int32_t readInt32(const char **pBuf)
-{
-  const int data_size = 4;
-  int32_t result = -1;
-  memcpy(&result, *pBuf, data_size);
-  *pBuf += data_size;
-  // logCallback("readInt32: got %d\n", result);
-  return result;
-}
-
-int64_t readInt64(const char **pBuf)
-{
-  const int data_size = 8;
-  int64_t result = -1;
-  memcpy(&result, *pBuf, data_size);
-  *pBuf += data_size;
-  // logCallback("readInt64: got %lld\n", result);
-  return result;
-}
-
 AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase)
 {
   AVCodecParameters *pCodecParams = avcodec_parameters_alloc();
@@ -63,7 +43,7 @@ AVCodecParameters *readCodecParams(const char *paramsData, AVRational *pTimeBase
   pCodecParams->ch_layout.nb_channels = readInt32(&pBuf);
   if (pCodecParams->ch_layout.order == AV_CHANNEL_ORDER_CUSTOM)
   {
-    logCallback("Unsupported ch_layout.order detected: %d\n", pCodecParams->ch_layout.order);
+    logMessage("Unsupported ch_layout.order detected: %d\n", pCodecParams->ch_layout.order);
   }
   else
   {

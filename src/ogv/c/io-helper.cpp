@@ -41,20 +41,20 @@ int readCallback(void *userdata, uint8_t *buffer, int length)
   while (1)
   {
     data_available = bq_headroom((BufferQueue *)userdata);
-    // logCallback("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
+    // logMessage("readCallback: bytes requested: %d, available: %d\n", length, (int)data_available);
     can_read_bytes = FFMIN(data_available, length);
     pos = ((BufferQueue *)userdata)->pos;
     if (can_read_bytes || !(fileSize - pos))
     {
       break;
     }
-    // logCallback(
+    // logMessage(
     //     "readCallback: bytes requested: %d, available: %d, bytes until end of file: %lld, cur pos: %lld, file size: %lld. Waiting for buffer refill: %d.\n",
     //     length, (int)data_available, fileSize - pos, pos, fileSize, waitingForInput);
     if (!waitingForInput)
     {
       waitingForInput = 1;
-      logCallback("Requesting seek to %lld\n", pos);
+      logMessage("Requesting seek to %lld\n", pos);
 
       requestSeek(pos);
     }
@@ -62,20 +62,20 @@ int readCallback(void *userdata, uint8_t *buffer, int length)
   }
   if (!can_read_bytes)
   {
-    logCallback("readCallback: end of file reached. Bytes requested: %d, available: %d, bytes until end of file: %lld. Reporting EOF.\n", length, (int)data_available, fileSize - pos);
+    logMessage("readCallback: end of file reached. Bytes requested: %d, available: %d, bytes until end of file: %lld. Reporting EOF.\n", length, (int)data_available, fileSize - pos);
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
     return AVERROR_EOF;
   }
   if (bq_read((BufferQueue *)userdata, (char *)buffer, (size_t)can_read_bytes))
   {
-    logCallback("readCallback: bq_red failed. Bytes requested: %d, available: %d, bytes until end of file: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos);
+    logMessage("readCallback: bq_red failed. Bytes requested: %d, available: %d, bytes until end of file: %lld. Waiting for buffer refill.\n", length, (int)data_available, fileSize - pos);
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
     return AVERROR_EOF;
   }
   else
   {
     // success
-    // logCallback("readCallback: %d bytes read\n", (int)can_read_bytes);
+    // logMessage("readCallback: %d bytes read\n", (int)can_read_bytes);
     callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
     return can_read_bytes;
   }
@@ -84,7 +84,7 @@ int readCallback(void *userdata, uint8_t *buffer, int length)
 int64_t seekCallback(void *userdata, int64_t offset, int whence)
 {
   callbackState = CALLBACK_STATE_IN_SEEK_CALLBACK;
-  logCallback("seekCallback is being called: offset=%lld, whence=%d\n", offset, whence);
+  logMessage("seekCallback is being called: offset=%lld, whence=%d\n", offset, whence);
   int64_t pos;
   switch (whence)
   {
@@ -117,13 +117,13 @@ int64_t seekCallback(void *userdata, int64_t offset, int whence)
     int64_t bytes_until_end = fileSize - pos;
     if (seekRet || data_available < FFMIN(bytes_until_end, avio_ctx_buffer_size))
     {
-      logCallback("FFmpeg demuxer error: buffer seek failure. Error code: %d. Bytes until end: %lld, data available: %lld\n", seekRet, bytes_until_end, data_available);
+      logMessage("FFmpeg demuxer error: buffer seek failure. Error code: %d. Bytes until end: %lld, data available: %lld\n", seekRet, bytes_until_end, data_available);
       requestSeek(pos);
       emscripten_sleep(100);
     }
     else
     {
-      logCallback("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
+      logMessage("FFmpeg demuxer: succesfully seeked to %lld.\n", pos);
       callbackState = CALLBACK_STATE_NOT_IN_CALLBACK;
       return pos;
     }

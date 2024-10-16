@@ -103,9 +103,9 @@ extern "C"
     int
     ogv_video_decoder_process_frame(const char *data, size_t data_len)
 {
-  logCallback("ogv_video_decoder_process_frame: started for packet with size %d\n", (int)data_len);
+  logMessage("ogv_video_decoder_process_frame: started for packet with size %d\n", (int)data_len);
   pthread_mutex_lock(&decode_mutex);
-  logCallback("ogv_video_decoder_process_frame: obtained mutex\n");
+  logMessage("ogv_video_decoder_process_frame: obtained mutex\n");
 
   // // Slice data and fill decode_queue with individual chunks
   // const uint8_t *pBuf = data;
@@ -121,13 +121,13 @@ extern "C"
 
   decode_queue[decode_queue_end].data = data;
   decode_queue[decode_queue_end].data_len = data_len;
-  logCallback("ogv_video_decoder_process_frame: wrote data to slot %d\n", decode_queue_end);
+  logMessage("ogv_video_decoder_process_frame: wrote data to slot %d\n", decode_queue_end);
   decode_queue_end = (decode_queue_end + 1) % decode_queue_size;
 
   pthread_cond_signal(&ping_cond);
-  logCallback("ogv_video_decoder_process_frame: sent a signal\n");
+  logMessage("ogv_video_decoder_process_frame: sent a signal\n");
   pthread_mutex_unlock(&decode_mutex);
-  logCallback("ogv_video_decoder_process_frame: released mutex\n");
+  logMessage("ogv_video_decoder_process_frame: released mutex\n");
   return 1;
 }
 
@@ -148,14 +148,14 @@ static void *decode_thread_run(void *paramsData)
     didNothing = true;
     if (!mutexLocked)
     {
-      logCallback("decode_thread_run: getting mutex\n");
+      logMessage("decode_thread_run: getting mutex\n");
       pthread_mutex_lock(&decode_mutex);
-      logCallback("decode_thread_run: obtained mutex\n");
+      logMessage("decode_thread_run: obtained mutex\n");
       mutexLocked = true;
     }
     if (decode_queue_end != decode_queue_start)
     {
-      logCallback("decode_thread_run: got some input\n");
+      logMessage("decode_thread_run: got some input\n");
       decode_queue_t item;
       item = decode_queue[decode_queue_start];
       decode_queue_start = (decode_queue_start + 1) % decode_queue_size;
@@ -169,7 +169,7 @@ static void *decode_thread_run(void *paramsData)
     }
     else
     {
-      logCallback("decode_thread_run: no input. End slot: %d\n", decode_queue_start);
+      logMessage("decode_thread_run: no input. End slot: %d\n", decode_queue_start);
     }
     if (try_processing())
     {
@@ -179,19 +179,19 @@ static void *decode_thread_run(void *paramsData)
     {
       if (!mutexLocked)
       {
-        logCallback("decode_thread_run: did nothing, getting mutex\n");
+        logMessage("decode_thread_run: did nothing, getting mutex\n");
         pthread_mutex_lock(&decode_mutex);
-        logCallback("decode_thread_run: did nothing, obtained mutex\n");
+        logMessage("decode_thread_run: did nothing, obtained mutex\n");
       }
       else
       {
-        logCallback("decode_thread_run: did nothing, mutex is already obtained\n");
+        logMessage("decode_thread_run: did nothing, mutex is already obtained\n");
       }
       // while (decode_queue_end == decode_queue_start)
       // {
-      logCallback("decode_thread_run: did nothing, waiting for ping_cond\n");
+      logMessage("decode_thread_run: did nothing, waiting for ping_cond\n");
       pthread_cond_wait(&ping_cond, &decode_mutex);
-      logCallback("decode_thread_run: did nothing, got ping_cond\n");
+      logMessage("decode_thread_run: did nothing, got ping_cond\n");
       mutexLocked = true;
       // }
     }

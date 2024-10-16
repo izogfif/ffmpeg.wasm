@@ -17,6 +17,20 @@ function reallocInputBuffer(size) {
   return inputBuffer;
 }
 
+function writeInt64(valueToWrite, dest, offset) {
+  const dv = new DataView(new ArrayBuffer(8));
+  dv.setBigUint64(0, `${valueToWrite}`, true);
+  dest.set(new Uint8Array(dv.buffer), offset);
+  return 8;
+}
+
+function writeInt32(valueToWrite, dest, offset) {
+  const dv = new DataView(new ArrayBuffer(4));
+  dv.setInt32(0, `${valueToWrite}`, true);
+  dest.set(new Uint8Array(dv.buffer), offset);
+  return 4;
+}
+
 var getTimestamp;
 if (
   typeof performance === "undefined" ||
@@ -96,9 +110,9 @@ Object.defineProperty(Module, "keyframeTimestamp", {
   },
 });
 /**
- * If we've seen a future keyframe in the queue, what is it?
- * @property number
- */
+  * If we've seen a future keyframe in the queue, what is it?
+  * @property number
+  */
 Object.defineProperty(Module, "nextKeyframeTimestamp", {
   get: function () {
     for (var i = 0; i < Module["videoPackets"].length; i++) {
@@ -112,9 +126,9 @@ Object.defineProperty(Module, "nextKeyframeTimestamp", {
 });
 
 /**
- * Are we in the middle of an asynchronous processing operation?
- * @property boolean
- */
+  * Are we in the middle of an asynchronous processing operation?
+  * @property boolean
+  */
 Object.defineProperty(Module, "processing", {
   get: function getProcessing() {
     return false;
@@ -129,9 +143,15 @@ Object.defineProperty(Module, "seekable", {
 
 // - public methods
 
-Module["init"] = function (fileSize, file) {
+Module["init"] = function (
+  threadCount,
+  debugDemuxer,
+  debugDecoder,
+  fileSize,
+  file
+) {
   time(function () {
-    let fileName = "";
+    let fileName = '';
     if (file) {
       const folderName = "data-" + Date.now();
       Module.FS.mkdir(folderName);
@@ -140,25 +160,27 @@ Module["init"] = function (fileSize, file) {
       Module.FS.mount(fs, { files: [fileWithProperNameAndExt] }, folderName);
       fileName = `${folderName}/${fileWithProperNameAndExt.name}`;
     }
-    var urlBytes = new TextEncoder().encode(fileName);
-    var len = 8 + urlBytes.byteLength;
+    // var urlBytes = new TextEncoder().encode(fileName);
+    // var len = 4 + 8 + urlBytes.byteLength;
+    var len = 4 + 4 + 4 + 8;
     var buffer = reallocInputBuffer(len);
     var dest = new Uint8Array(wasmMemory.buffer, buffer, len);
-    dest.set(urlBytes, 8);
-
-    const dv = new DataView(new ArrayBuffer(8), 0);
-    dv.setBigUint64(0, `${fileSize}`, true);
-    dest.set(new Uint8Array(dv.buffer), 0);
+    let posInArray = 0;
+    posInArray += writeInt32(threadCount, dest, posInArray);
+    posInArray += writeInt32(debugDemuxer ? 1 : 0, dest, posInArray);
+    posInArray += writeInt32(debugDecoder ? 1 : 0, dest, posInArray);
+    posInArray += writeInt64(fileSize, dest, posInArray);
+    // dest.set(urlBytes, posInArray);
 
     Module["_ogv_demuxer_init"](buffer, len);
   });
 };
 
 /**
- * Queue up some data for later processing...
- *
- * @param ArrayBuffer data
- */
+  * Queue up some data for later processing...
+  *
+  * @param ArrayBuffer data
+  */
 Module["receiveInput"] = function (data) {
   time(function () {
     // Map the ArrayBuffer into emscripten's runtime heap
@@ -171,12 +193,12 @@ Module["receiveInput"] = function (data) {
 };
 
 /**
- * Process previously queued data into packets.
- *
- * return value is 'true' if there
- * are more packets to be processed in the queued data,
- * or 'false' if there aren't.
- */
+  * Process previously queued data into packets.
+  *
+  * return value is 'true' if there
+  * are more packets to be processed in the queued data,
+  * or 'false' if there aren't.
+  */
 Module["process"] = function () {
   var ret = time(function () {
     return Module["_ogv_demuxer_process"]();
@@ -193,12 +215,12 @@ Module["dequeueAudioPacket"] = function () {
 };
 
 /**
- * Return the offset of the relevant keyframe or other position
- * just before the given presentation timestamp
- *
- * @param number timeSeconds
- * @return number byte offset
- */
+  * Return the offset of the relevant keyframe or other position
+  * just before the given presentation timestamp
+  *
+  * @param number timeSeconds
+  * @return number byte offset
+  */
 Module["getKeypointOffset"] = function (timeSeconds) {
   var offset = time(function () {
     return Module["_ogv_demuxer_keypoint_offset"](timeSeconds * 1000);
@@ -207,13 +229,13 @@ Module["getKeypointOffset"] = function (timeSeconds) {
 };
 
 /**
- * Initiate seek to the nearest keyframe or other position just before
- * the given presentation timestamp. This may trigger seek requests, and
- * it may take some time before processing returns more packets.
- *
- * @param number timeSeconds
- * @return boolean indicates whether seeking was initiated or not.
- */
+  * Initiate seek to the nearest keyframe or other position just before
+  * the given presentation timestamp. This may trigger seek requests, and
+  * it may take some time before processing returns more packets.
+  *
+  * @param number timeSeconds
+  * @return boolean indicates whether seeking was initiated or not.
+  */
 Module["seekToKeypoint"] = function (timeSeconds) {
   var ret = time(function () {
     return Module["_ogv_demuxer_seek_to_keypoint"](timeSeconds * 1000);
@@ -234,8 +256,8 @@ Module["flush"] = function () {
 };
 
 /**
- * Close out any resources required by the demuxer module
- */
+  * Close out any resources required by the demuxer module
+  */
 Module["close"] = function () {
   // no-op
 };
