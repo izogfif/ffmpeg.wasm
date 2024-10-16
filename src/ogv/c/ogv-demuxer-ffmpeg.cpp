@@ -59,6 +59,7 @@ int64_t previouslyRequestedPts = -1;
 int64_t ptsOfLastPacketSent = -1;
 int32_t threadCount = -1;
 int32_t debugDecoder = 0;
+int32_t decodedFrameBufferSize = -1;
 
 enum AppState
 {
@@ -96,10 +97,15 @@ extern "C" void ogv_demuxer_init(const char *initOptions, int len)
   loggingEnabled = debugDemuxer ? true : false;
   debugDecoder = readInt32(&pBuf);
   fileSize = readInt64(&pBuf);
-  printf("FFmpeg demuxer: ogv_demuxer_init with thread count: %d, debugDemuxer: %d, debugDecoder: %d, file size: %lld bytes.\n",
-         threadCount, debugDemuxer, debugDecoder, fileSize);
+  int packetBufferSize = readInt32(&pBuf);
+  decodedFrameBufferSize = readInt32(&pBuf);
+  printf("FFmpeg demuxer: ogv_demuxer_init with thread count: %d, \
+          debugDemuxer: %d, debugDecoder: %d, file size: %lld bytes, \
+          packet buffer size: %d, decoded frame buffer size: %d.\n",
+         threadCount, debugDemuxer, debugDecoder, fileSize, packetBufferSize, decodedFrameBufferSize);
   appState = STATE_BEGIN;
-
+  videoPackets.clear();
+  videoPackets.setMaxSize(packetBufferSize);
   bufferQueue = bq_init();
 
   pFormatContext = avformat_alloc_context();
@@ -282,11 +288,12 @@ static int processBegin(void)
     // }
 
     uint32_t bytesWritten = 0;
-    uint32_t allocatedSize = 4 + 4 + 8 + 32 * 4 + pVideoCodecParameters->extradata_size;
+    uint32_t allocatedSize = 4 + 4 + 4 + 8 + 32 * 4 + pVideoCodecParameters->extradata_size;
     uint8_t *const pBufStart = (uint8_t *)malloc(allocatedSize);
     uint8_t *pBuf = pBufStart;
     writeInt32(&pBuf, threadCount, &bytesWritten);
     writeInt32(&pBuf, debugDecoder, &bytesWritten);
+    writeInt32(&pBuf, decodedFrameBufferSize, &bytesWritten);
     writeInt32(&pBuf, streamTimeBase[videoStreamIndex].num, &bytesWritten);
     writeInt32(&pBuf, streamTimeBase[videoStreamIndex].den, &bytesWritten);
 
@@ -577,6 +584,7 @@ extern "C" int ogv_demuxer_process(void)
   const int64_t data_available = bq_headroom(bufferQueue);
   const int64_t bytes_until_end = fileSize - bufferQueue->pos;
   // logMessage("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
+  printf("%lld\n", data_available);
 
   if (data_available < minBufSize && bytes_until_end > data_available)
   {

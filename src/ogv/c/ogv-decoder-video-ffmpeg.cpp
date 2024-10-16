@@ -61,9 +61,9 @@ int unreceivedPackets = 0;
 double totalSendTime = 0;
 double totalReceiveFrameTime = 0;
 double totalConversionTime = 0;
-const int maxDecodedFrames = 3;
 double totalReadInputTime = 0;
 double latestReadInputTime = 0;
+int32_t decodedFrameBufferSize = -1;
 
 static void free_decoder(struct FFmpegRamDecoder *d)
 {
@@ -205,12 +205,13 @@ static void do_init(const char *paramsData)
   const char *pBuf = paramsData;
   threadCount = readInt32(&pBuf);
   int32_t debugDecoder = readInt32(&pBuf);
+  decodedFrameBufferSize = readInt32(&pBuf);
   loggingEnabled = debugDecoder ? true : false;
   printf("FFmpeg decoder: do_init: init params requested %d threads, debugDecoder: %d.\n", threadCount, debugDecoder);
   pCodecParams = readCodecParams(pBuf, &timeBase);
   if (!pCodecParams)
   {
-    logMessage("FFmpeg decoder: ogv-decoder-video-theora: failed to read codec params\n");
+    logMessage("FFmpeg decoder: failed to read codec params\n");
     return;
   }
 
@@ -319,18 +320,18 @@ static AVFrame *copy_image(const AVFrame *src)
 
 AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
 {
-  logMessage("FFmpeg decoder: ogv-decoder-video-theora: getConvertedFrame is being called\n");
+  logMessage("FFmpeg decoder: getConvertedFrame is being called\n");
   if (pDecodedFrame->format == AV_PIX_FMT_YUV420P ||
       pDecodedFrame->format == AV_PIX_FMT_YUV444P)
   {
     return pDecodedFrame;
   }
-  logMessage("FFmpeg decoder: ogv-decoder-video-theora: av_frame_alloc\n");
+  logMessage("FFmpeg decoder: av_frame_alloc\n");
 
   AVFrame *pConvertedFrame = av_frame_alloc();
   if (!pConvertedFrame)
   {
-    logMessage("FFmpeg decoder: ogv-decoder-video-theora: failed to create frame for conversion");
+    printf("FFmpeg decoder: failed to create frame for conversion");
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
@@ -341,11 +342,11 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
   int get_buffer_res = av_frame_get_buffer(pConvertedFrame, 0);
   if (get_buffer_res)
   {
-    logMessage("FFmpeg decoder: ogv-decoder-video-theora: failed to allocate buffer for converted frame\n");
+    printf("FFmpeg decoder: failed to allocate buffer for converted frame\n");
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logMessage("FFmpeg decoder: ogv-decoder-video-theora: calling sws_scale\n");
+  logMessage("FFmpeg decoder:: calling sws_scale\n");
   int scaleResult = sws_scale(
       pSwsContext,
       (const uint8_t *const *)pDecodedFrame->data,
@@ -356,11 +357,11 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
       pConvertedFrame->linesize);
   if (scaleResult != pConvertedFrame->height)
   {
-    logMessage("FFmpeg decoder: ogv-decoder-video-theora error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
+    printf("FFmpeg decoder: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logMessage("FFmpeg decoder: ogv-decoder-video-theora: sws_scale returned %d\n", scaleResult);
+  logMessage("FFmpeg decoder: sws_scale returned %d\n", scaleResult);
   // av_frame_free(&pDecodedFrame);
   return pConvertedFrame;
 }
@@ -450,10 +451,10 @@ static bool try_processing()
     }
   }
   // Now, attempt to receive a single frame and put it in decodedFrames
-  if (decodedFrames.size() < maxDecodedFrames)
+  if (decodedFrames.size() < decodedFrameBufferSize)
   {
     logMessage("FFmpeg decoder: Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
-               decodedFrames.size(), maxDecodedFrames);
+               decodedFrames.size(), decodedFrameBufferSize);
     double receiveFrameStart = emscripten_get_now();
     int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
     double receiveFrameEnd = emscripten_get_now();

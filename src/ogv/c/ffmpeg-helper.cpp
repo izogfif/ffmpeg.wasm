@@ -55,12 +55,12 @@ int64_t readInt64(const char **pBuf)
   return result;
 }
 
-
 DemuxedPacket::DemuxedPacket(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
-    : m_pts(pts), m_dts(dts), m_dataSize(dataSize), m_pData(dataSize ? (uint8_t *)malloc(m_dataSize) : NULL)
+    : m_pts(pts), m_dts(dts), m_pData(NULL), m_dataSize(dataSize)
 {
   if (dataSize)
   {
+    m_pData = (uint8_t *)malloc(m_dataSize);
     memcpy(m_pData, pData, dataSize);
   }
 }
@@ -76,6 +76,11 @@ PacketBuffer::PacketBuffer(int maxSize)
     : m_maxSize(maxSize),
       m_sizeOfPtsQueueOfRecentlyRemovedPackets(1000)
 {
+}
+
+void PacketBuffer::setMaxSize(int maxSize)
+{
+  m_maxSize = maxSize;
 }
 
 int PacketBuffer::size() const

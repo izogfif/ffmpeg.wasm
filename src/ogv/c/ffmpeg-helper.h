@@ -55,12 +55,12 @@ public:
   bool empty() const;
   bool hasPacketWithPts(int64_t pts) const;
   const DemuxedPacket &front() const;
-
+  void setMaxSize(int maxSize);
 private:
   std::deque<DemuxedPacket> m_videoPackets;
   std::set<int64_t> m_ptsToRequest;
   std::deque<int64_t> m_ptsOfRecentlyRemovedPackets;
   std::unordered_set<int64_t> m_ptsOfPacketsEverAdded;
-  const int m_maxSize;
+  int m_maxSize;
   const int m_sizeOfPtsQueueOfRecentlyRemovedPackets;
 };

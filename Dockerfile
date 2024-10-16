@@ -2,7 +2,8 @@
 # The line above is required in order for "ADD https://github.com/..." lines to work
 
 # Base emsdk image with environment variables.
-FROM --platform=linux/amd64 emscripten/emsdk:3.1.40@sha256:c1e807a6e03ac5bd5b37bae2ace3c46c08579e2ddeb951037a3b8dac7067f2cc AS emsdk-base
+FROM --platform=linux/amd64 emscripten/emsdk:3.1.69@sha256:9d6522879357a363ada61862481cc12c5f772d5e9738b8addf95d38490cdc6ea AS emsdk-base
+# FROM --platform=linux/amd64 emscripten/emsdk:3.1.40@sha256:c1e807a6e03ac5bd5b37bae2ace3c46c08579e2ddeb951037a3b8dac7067f2cc AS emsdk-base
 #FROM --platform=linux/amd64 emscripten/emsdk:3.1.49@sha256:b35d43d2927648cc4e026aecbdc05c5ffdc8a2b72d7e085e0a836510ff2e0004 AS emsdk-base
 #FROM --platform=linux/amd64 emscripten/emsdk:3.1.45@sha256:e92eed60a35c9b43588e3fa3dae56c4236b4e7462e6ee5276fae6e98f914b4e4 AS emsdk-base
 #FROM  --platform=linux/amd64 emscripten/emsdk:3.1.43@sha256:e856cd59d54fd143366c2df314043d63a1ca23ab43521e0f30f9d9a7ce6d43e0 AS emsdk-base
@@ -39,6 +40,7 @@ FROM emsdk-base AS x265-builder
 ENV X265_BRANCH=4.0
 ADD https://bitbucket.org/multicoreware/x265_git.git#$X265_BRANCH /src
 COPY build/x265.sh /src/build.sh
+COPY build/x265.CMakeLists.txt /src/source/CMakeLists.txt
 RUN bash -x /src/build.sh
 
 # Build libvpx

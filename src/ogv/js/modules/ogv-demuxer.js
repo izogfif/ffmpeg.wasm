@@ -147,6 +147,8 @@ Module["init"] = function (
   threadCount,
   debugDemuxer,
   debugDecoder,
+  packetBufferSize,
+  decodedFrameBufferSize,
   fileSize,
   file
 ) {
@@ -162,7 +164,7 @@ Module["init"] = function (
     }
     // var urlBytes = new TextEncoder().encode(fileName);
     // var len = 4 + 8 + urlBytes.byteLength;
-    var len = 4 + 4 + 4 + 8;
+    var len = 4 * 5 + 8;
     var buffer = reallocInputBuffer(len);
     var dest = new Uint8Array(wasmMemory.buffer, buffer, len);
     let posInArray = 0;
@@ -170,6 +172,8 @@ Module["init"] = function (
     posInArray += writeInt32(debugDemuxer ? 1 : 0, dest, posInArray);
     posInArray += writeInt32(debugDecoder ? 1 : 0, dest, posInArray);
     posInArray += writeInt64(fileSize, dest, posInArray);
+    posInArray += writeInt32(packetBufferSize, dest, posInArray);
+    posInArray += writeInt32(decodedFrameBufferSize, dest, posInArray);
     // dest.set(urlBytes, posInArray);
 
     Module["_ogv_demuxer_init"](buffer, len);
