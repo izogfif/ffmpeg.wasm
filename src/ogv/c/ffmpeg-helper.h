@@ -1,8 +1,11 @@
 #include <deque>
 #include <set>
+#include <unordered_set>
 
 #define FFMPEG_CODEC_NAME "ffmpeg"
 #define DEBUG_ENABLED 0
+
+#define PACKET_BUFFER_SIZE 20
 
 #ifdef __cplusplus
 extern "C"
@@ -43,9 +46,13 @@ public:
   std::deque<DemuxedPacket>::const_iterator end() const;
   int64_t getMinPts() const;
   bool empty() const;
-
+  bool hasPacketWithPts(int64_t pts) const;
+  const DemuxedPacket &front() const;
 private:
   std::deque<DemuxedPacket> m_videoPackets;
   std::set<int64_t> m_ptsToRequest;
+  std::deque<int64_t> m_ptsOfRecentlyRemovedPackets;
+  std::unordered_set<int64_t> m_ptsOfPacketsEverAdded;
   const int m_maxSize;
+  const int m_sizeOfPtsQueueOfRecentlyRemovedPackets;
 };

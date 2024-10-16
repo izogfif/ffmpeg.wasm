@@ -38,7 +38,7 @@ public:
   AVFrame *m_frame;
 };
 
-std::deque<DemuxedPacket> videoPackets;
+PacketBuffer videoPackets(PACKET_BUFFER_SIZE);
 std::deque<DecodedFrame> decodedFrames;
 std::deque<int64_t> requestedPts;
 bool firstEverPts = true;
@@ -53,7 +53,6 @@ struct FFmpegRamDecoder
 static struct FFmpegRamDecoder *ffmpegRamDecoder = NULL;
 static AVCodecParameters *pCodecParams = NULL;
 static struct SwsContext *pSwsContext = NULL;
-int64_t highestDtsQueued = AV_NOPTS_VALUE;
 int64_t ptsReturned = AV_NOPTS_VALUE;
 double decodingStartTime = -1;
 AVRational timeBase = {1, 1};
@@ -82,7 +81,7 @@ static int get_thread_count()
 #ifdef __EMSCRIPTEN_PTHREADS__
   // Must synchronize with value in ogv-decoder-video.sh:
   // ${FFMPEG_MT:+ -sPTHREAD_POOL_SIZE=4}
-  const int max_cores = 4;
+  const int max_cores = 8;
   int cores = emscripten_num_logical_cores();
   if (cores == 0)
   {
@@ -107,19 +106,19 @@ static int reset(struct FFmpegRamDecoder *d)
   int ret;
   if (!(codec = avcodec_find_decoder(pCodecParams->codec_id)))
   {
-    logCallback("avcodec_find_decoder_by_name failed\n");
+    logCallback("FFmpeg decoder: avcodec_find_decoder_by_name failed\n");
     return -1;
   }
-  logCallback("Found decoder %s (%s)\n", codec->name, codec->long_name);
+  logCallback("FFmpeg decoder: Found decoder %s (%s)\n", codec->name, codec->long_name);
   if (!(d->c_ = avcodec_alloc_context3(codec)))
   {
-    logCallback("Could not allocate video codec context\n");
+    logCallback("FFmpeg decoder: Could not allocate video codec context\n");
     return -1;
   }
   // Fill the codec context based on the values from the supplied codec parameters
   if (avcodec_parameters_to_context(d->c_, pCodecParams) < 0)
   {
-    logCallback("failed to copy codec params to codec context\n");
+    logCallback("FFmpeg decoder: failed to copy codec params to codec context\n");
     return -1;
   }
 
@@ -130,7 +129,11 @@ static int reset(struct FFmpegRamDecoder *d)
   d->c_->skip_frame = AVDISCARD_DEFAULT;       //
   d->c_->skip_idct = AVDISCARD_DEFAULT;        // NB: changing this makes no difference
   d->c_->thread_count = get_thread_count();
-  d->c_->debug = 1;
+
+  // d->c_->workaround_bugs = AV_EF_IGNORE_ERR;
+  // d->c_->err_recognition = 0;
+  // d->c_->error_concealment = 1;
+  // d->c_->debug = 1;
   // See https://stackoverflow.com/a/69025953/156973
   // Try using multi-threading capabilities in this order: slice, then frame
   // Decoding h265 video with frame-threading results in high delay
@@ -159,33 +162,32 @@ static int reset(struct FFmpegRamDecoder *d)
   printf("Decoder was configured to use %d thread(s).\n", d->c_->thread_count);
   if (!(d->pkt_ = av_packet_alloc()))
   {
-    logCallback("av_packet_alloc failed\n");
+    logCallback("FFmpeg decoder: av_packet_alloc failed\n");
     return -1;
   }
 
   if (!(d->frame_ = av_frame_alloc()))
   {
-    logCallback("av_frame_alloc failed\n");
+    logCallback("FFmpeg decoder: av_frame_alloc failed\n");
     return -1;
   }
 
   if ((ret = avcodec_open2(d->c_, codec, NULL)) != 0)
   {
-    logCallback("avcodec_open2 failed\n");
+    logCallback("FFmpeg decoder: avcodec_open2 failed\n");
     return -1;
   }
-  logCallback("reset ok\n");
+  logCallback("FFmpeg decoder: reset ok\n");
 #ifdef __EMSCRIPTEN_PTHREADS__
-  logCallback("PTHREADS enabled\n");
+  logCallback("FFmpeg decoder: PTHREADS enabled\n");
 #else
-  logCallback("PTHREADS disabled\n");
+  logCallback("FFmpeg decoder: PTHREADS disabled\n");
 #endif
   unreceivedPackets = 0;
   totalSendTime = 0;
   totalReceiveFrameTime = 0;
   totalConversionTime = 0;
   requestedPts.clear();
-  highestDtsQueued = AV_NOPTS_VALUE;
   ptsReturned = AV_NOPTS_VALUE;
   videoPackets.clear();
   decodedFrames.clear();
@@ -195,23 +197,23 @@ static int reset(struct FFmpegRamDecoder *d)
 
 static void do_init(const char *paramsData)
 {
-  logCallback("ogv-decoder-video-theora is being initialized\n");
+  logCallback("FFmpeg decoder: ogv-decoder-video-theora is being initialized\n");
   // av_log_set_level(AV_LOG_DEBUG);
   pCodecParams = readCodecParams(paramsData, &timeBase);
   if (!pCodecParams)
   {
-    logCallback("ogv-decoder-video-theora: failed to read codec params\n");
+    logCallback("FFmpeg decoder: ogv-decoder-video-theora: failed to read codec params\n");
     return;
   }
 
-  logCallback("do init 1\n");
+  logCallback("FFmpeg decoder: do init 1\n");
   if (ffmpegRamDecoder)
   {
     free_decoder(ffmpegRamDecoder);
     free(ffmpegRamDecoder);
     ffmpegRamDecoder = NULL;
   }
-  logCallback("do init 2\n");
+  logCallback("FFmpeg decoder: do init 2\n");
   ffmpegRamDecoder = (struct FFmpegRamDecoder *)malloc(sizeof(struct FFmpegRamDecoder));
   if (!ffmpegRamDecoder)
   {
@@ -221,7 +223,7 @@ static void do_init(const char *paramsData)
   ffmpegRamDecoder->frame_ = NULL;
   ffmpegRamDecoder->pkt_ = NULL;
 
-  logCallback("do init 3\n");
+  logCallback("FFmpeg decoder: do init 3\n");
 
   if (reset(ffmpegRamDecoder) != 0)
   {
@@ -254,13 +256,13 @@ static void do_init(const char *paramsData)
     int bufRet = av_frame_get_buffer(pConvertedFrame, 0);
     if (bufRet)
     {
-      logCallback("Failed to initialize converted frame buffer. Error code: %d (%s)\n",
+      logCallback("FFmpeg decoder: Failed to initialize converted frame buffer. Error code: %d (%s)\n",
                   bufRet, av_err2str(bufRet));
       return;
     }
     av_frame_free(&pConvertedFrame);
   }
-  logCallback("do init ok\n");
+  logCallback("FFmpeg decoder: do init ok\n");
 }
 
 void do_destroy(void)
@@ -281,8 +283,9 @@ static AVFrame *copy_image(const AVFrame *src)
   dest->format = src->format;
   dest->width = src->width;
   dest->height = src->height;
-  dest->channels = src->channels;
-  dest->channel_layout = src->channel_layout;
+  // dest->channels = src->channels;
+  // dest->channel_layout = src->channel_layout;
+  dest->ch_layout = src->ch_layout;
   dest->nb_samples = src->nb_samples;
   int ret = av_frame_get_buffer(dest, 0);
   if (ret)
@@ -307,18 +310,18 @@ static AVFrame *copy_image(const AVFrame *src)
 
 AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
 {
-  logCallback("ogv-decoder-video-theora: getConvertedFrame is being called\n");
+  logCallback("FFmpeg decoder: ogv-decoder-video-theora: getConvertedFrame is being called\n");
   if (pDecodedFrame->format == AV_PIX_FMT_YUV420P ||
       pDecodedFrame->format == AV_PIX_FMT_YUV444P)
   {
     return pDecodedFrame;
   }
-  logCallback("ogv-decoder-video-theora: av_frame_alloc\n");
+  logCallback("FFmpeg decoder: ogv-decoder-video-theora: av_frame_alloc\n");
 
   AVFrame *pConvertedFrame = av_frame_alloc();
   if (!pConvertedFrame)
   {
-    logCallback("ogv-decoder-video-theora: failed to create frame for conversion");
+    logCallback("FFmpeg decoder: ogv-decoder-video-theora: failed to create frame for conversion");
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
@@ -329,11 +332,11 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
   int get_buffer_res = av_frame_get_buffer(pConvertedFrame, 0);
   if (get_buffer_res)
   {
-    logCallback("ogv-decoder-video-theora: failed to allocate buffer for converted frame\n");
+    logCallback("FFmpeg decoder: ogv-decoder-video-theora: failed to allocate buffer for converted frame\n");
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logCallback("ogv-decoder-video-theora: calling sws_scale\n");
+  logCallback("FFmpeg decoder: ogv-decoder-video-theora: calling sws_scale\n");
   int scaleResult = sws_scale(
       pSwsContext,
       (const uint8_t *const *)pDecodedFrame->data,
@@ -344,11 +347,11 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
       pConvertedFrame->linesize);
   if (scaleResult != pConvertedFrame->height)
   {
-    logCallback("ogv-decoder-video-theora error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
+    logCallback("FFmpeg decoder: ogv-decoder-video-theora error: scaling failed: sws_scale returned %d, expected %d\n", scaleResult, pConvertedFrame->height);
     // av_frame_free(&pDecodedFrame);
     return NULL;
   }
-  logCallback("ogv-decoder-video-theora: sws_scale returned %d\n", scaleResult);
+  logCallback("FFmpeg decoder: ogv-decoder-video-theora: sws_scale returned %d\n", scaleResult);
   // av_frame_free(&pDecodedFrame);
   return pConvertedFrame;
 }
@@ -364,7 +367,7 @@ static void read_input(const char *data, size_t data_len)
 
   const char *pBuf = data;
   const int32_t packetCount = readInt32(&pBuf);
-  logCallback("Decoding batch of %d packets\n", packetCount);
+  logCallback("FFmpeg decoder: Decoding batch of %d packets\n", packetCount);
   if (firstEverPts)
   {
     // This is the first frame ever requested
@@ -372,14 +375,14 @@ static void read_input(const char *data, size_t data_len)
     firstEverPts = false;
   }
   requestedPts.push_back(readInt64(&pBuf));
-  logCallback("Requested pts %lld\n", requestedPts.back());
+  logCallback("FFmpeg decoder: Requested pts %lld\n", requestedPts.back());
   // First, add all packets to videoPackets deque (skipping those that are already in deque)
   for (int i = 0; i < packetCount; ++i)
   {
     const int32_t dummy = readInt32(&pBuf);
     if (dummy != 0)
     {
-      logCallback("Invalid packet signature\n");
+      logCallback("FFmpeg decoder: Invalid packet signature\n");
       call_main_return(NULL, 0);
       return;
     }
@@ -388,29 +391,29 @@ static void read_input(const char *data, size_t data_len)
     const int32_t packetSize = readInt32(&pBuf);
     uint8_t *packetData = (uint8_t *)pBuf;
     pBuf += packetSize;
-    if (videoPackets.empty() || videoPackets.back().m_dts < dts)
+    if (!videoPackets.hasPacketWithPts(pts))
     {
-      logCallback("Adding packet to buffer. pts = %lld, dts = %lld, current buffer size: %d.\n",
+      logCallback("FFmpeg decoder: Adding packet to buffer. pts = %lld, dts = %lld, current buffer size: %d.\n",
                   pts, dts, videoPackets.size());
       videoPackets.emplace_back(pts, dts, packetSize, packetData);
     }
     else
     {
-      logCallback("Skipping packet pts = %lld, dts = %lld, current buffer size: %d.\n",
+      logCallback("FFmpeg decoder: Skipping packet pts = %lld, dts = %lld, current buffer size: %d.\n",
                   pts, dts, videoPackets.size());
     }
   }
 }
 static bool try_processing()
 {
-  logCallback("try_processing\n");
+  logCallback("FFmpeg decoder: try_processing\n");
   if (!requestedPts.empty())
   {
     int64_t oldestRequestedPts = requestedPts.front();
     // Remove all decoded frames that have pts less than requested one
     while (!decodedFrames.empty() && decodedFrames.front().m_frame->pts < oldestRequestedPts)
     {
-      logCallback("Removing decoded frame pts = %lld, dts = %lld, current size of decoded frames buffer: %d, requested pts: %lld.\n",
+      logCallback("FFmpeg decoder: Removing decoded frame pts = %lld, dts = %lld, current size of decoded frames buffer: %d, requested pts: %lld.\n",
                   decodedFrames.front().m_frame->pts,
                   decodedFrames.front().m_frame->pkt_dts,
                   decodedFrames.size(), oldestRequestedPts);
@@ -424,7 +427,7 @@ static bool try_processing()
         const DecodedFrame &firstFrame = decodedFrames.front();
         if (firstFrame.m_frame->pts == oldestRequestedPts)
         {
-          logCallback("We found requested frame %lld\n", oldestRequestedPts);
+          logCallback("FFmpeg decoder: We found requested frame %lld\n", oldestRequestedPts);
           call_main_return((void *)copy_image(firstFrame.m_frame), 1);
           ptsReturned = oldestRequestedPts;
           requestedPts.pop_front();
@@ -436,7 +439,7 @@ static bool try_processing()
   // Now, attempt to receive a single frame and put it in decodedFrames
   if (decodedFrames.size() < maxDecodedFrames)
   {
-    logCallback("Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
+    logCallback("FFmpeg decoder: Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
                 decodedFrames.size(), maxDecodedFrames);
     double receiveFrameStart = emscripten_get_now();
     int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
@@ -446,7 +449,7 @@ static bool try_processing()
 
     if (ret == AVERROR(EAGAIN))
     {
-      logCallback("Not enough data to receive a frame.\n");
+      logCallback("FFmpeg decoder: Not enough data to receive a frame.\n");
     }
     else if (ret != 0)
     {
@@ -455,7 +458,7 @@ static bool try_processing()
     }
     else
     {
-      logCallback("Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
+      logCallback("FFmpeg decoder: Decoded frame with pts %lld (dts %lld) in %.3f ms: %p, d->frame_-:%p, width: %d, height: %d, linesize[0]: %d\n",
                   ffmpegRamDecoder->frame_->pts,
                   ffmpegRamDecoder->frame_->pkt_dts,
                   receiveFrameTime,
@@ -473,7 +476,7 @@ static bool try_processing()
   if (!videoPackets.empty())
   {
     const DemuxedPacket &packet = videoPackets.front();
-    logCallback("Attempting to send packet with pts %lld (dts %lld), packet size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
+    logCallback("FFmpeg decoder: Attempting to send packet with pts %lld (dts %lld), packet size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
 
     ffmpegRamDecoder->pkt_->data = packet.m_pData;
     ffmpegRamDecoder->pkt_->size = packet.m_dataSize;
@@ -487,7 +490,7 @@ static bool try_processing()
     totalSendTime += sendTime;
     if (ret == AVERROR(EAGAIN))
     {
-      logCallback("avcodec_send_packet's buffer is full\n");
+      logCallback("FFmpeg decoder: avcodec_send_packet's buffer is full\n");
     }
     else if (ret < 0)
     {
@@ -495,14 +498,14 @@ static bool try_processing()
     }
     else
     {
-      logCallback("avcodec_send_packet took %.3f ms\n", sendTime);
+      logCallback("FFmpeg decoder: avcodec_send_packet took %.3f ms\n", sendTime);
       videoPackets.pop_front();
       ++unreceivedPackets;
       return true;
     }
   }
   // There is nothing to do here
-  logCallback("Couldn't receive a frame or send a packet, exiting. Unsent packets: %d, decodedFrames: %d, sent but unreceived packetes: %d.\n",
+  logCallback("FFmpeg decoder: Couldn't receive a frame or send a packet, exiting. Unsent packets: %d, decodedFrames: %d, sent but unreceived packetes: %d.\n",
               videoPackets.size(), decodedFrames.size(), unreceivedPackets);
   return false;
 }
@@ -510,7 +513,7 @@ static bool try_processing()
 static int process_frame_return(void *image)
 {
   AVFrame *frame = (AVFrame *)image;
-  logCallback("process_frame_return: %p\n", frame);
+  logCallback("FFmpeg decoder: process_frame_return: %p\n", frame);
   if (!frame)
   {
     return 0;
@@ -528,7 +531,7 @@ static int process_frame_return(void *image)
 
   int converted = 0;
   int chromaWidth, chromaHeight;
-  logCallback("process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
+  logCallback("FFmpeg decoder: process_frame_return: w: %d, h: %d\n", frame->width, frame->height);
   int oldFormat = frame->format;
   double conversionTime = 0;
   switch (frame->format)
@@ -548,7 +551,7 @@ static int process_frame_return(void *image)
     double conversionEnd = emscripten_get_now();
     conversionTime = conversionEnd - conversionStart;
     totalConversionTime += conversionTime;
-    logCallback("Converted frame from %d to %d in %.3f ms\n", oldFormat, pConvertedFrame->format, conversionTime);
+    logCallback("FFmpeg decoder: Converted frame from %d to %d in %.3f ms\n", oldFormat, pConvertedFrame->format, conversionTime);
     chromaWidth = pConvertedFrame->width >> 1;
     chromaHeight = height >> 1;
     converted = 1;

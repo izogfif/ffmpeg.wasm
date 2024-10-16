@@ -21,11 +21,9 @@ extern "C"
 #include "io-helper.h"
 #include <unordered_map>
 
-
 int endReached = 0;
 
-static const int packetBufferSize = 20;
-PacketBuffer videoPackets(packetBufferSize);
+PacketBuffer videoPackets(PACKET_BUFFER_SIZE);
 
 static bool hasVideo = false;
 static int videoStreamIndex = -1;
@@ -59,6 +57,7 @@ const int64_t fakeDtsInitialValue = -1000;
 // TODO: reset fakeDtsValue to fakeDtsInitialValue during seeking
 int64_t fakeDtsValue = fakeDtsInitialValue;
 int64_t previouslyRequestedPts = -1;
+int64_t ptsOfLastPacketSent = -1;
 
 enum AppState
 {
@@ -403,24 +402,35 @@ int callVideoCallbackIfBufferIsFull()
   uint32_t resultBufSize = 4 + 8;
   int64_t requestedPts = videoPackets.getMinPts();
   logCallback("FFmpeg demuxer: iterating over %d packets in buffer\n", videoPackets.size());
-  for (const auto &packet : videoPackets)
+  std::deque<DemuxedPacket>::const_iterator itOfFirstPacketToSend = videoPackets.begin();
+  if (ptsOfLastPacketSent != -1)
   {
+    const auto ptsToSearch = ptsOfLastPacketSent;
+    itOfFirstPacketToSend = std::find_if(
+        videoPackets.begin(),
+        videoPackets.end(),
+        [ptsToSearch](const DemuxedPacket &packet)
+        { return packet.m_pts == ptsOfLastPacketSent; });
+    if (itOfFirstPacketToSend != videoPackets.end())
+    {
+      ++itOfFirstPacketToSend;
+    }
+    if (itOfFirstPacketToSend == videoPackets.end())
+    {
+      // Send everything from the start
+      itOfFirstPacketToSend = videoPackets.begin();
+    }
+  }
+  int numberOfPacketsToSend = 0;
+  for (auto it = itOfFirstPacketToSend; it != videoPackets.end(); ++it)
+  {
+    ++numberOfPacketsToSend;
+    const auto &packet = *it;
     logCallback("FFmpeg demuxer: pts %lld, dts %lld, size: %d\n", packet.m_pts, packet.m_dts, packet.m_dataSize);
     resultBufSize += 4 + 8 + 8 + 4 + packet.m_dataSize;
-    // if (packet.m_pts > previouslyRequestedPts)
-    // {
-    //   if (requestedPts == -1)
-    //   {
-    //     requestedPts = packet.m_pts;
-    //   }
-    //   else
-    //   {
-    //     requestedPts = FFMIN(requestedPts, packet.m_pts);
-    //   }
-    // }
   }
   previouslyRequestedPts = requestedPts;
-  logCallback("Writing %d packets into buffer, total size: %d. Requesting pts: %lld\n", videoPackets.size(), resultBufSize, requestedPts);
+  logCallback("Writing %d packets into buffer, total size: %d. Requesting pts: %lld\n", numberOfPacketsToSend, resultBufSize, requestedPts);
 
   uint8_t *const pResultBuf = (uint8_t *)malloc(resultBufSize);
   if (!pResultBuf)
@@ -431,10 +441,11 @@ int callVideoCallbackIfBufferIsFull()
   logCallback("FFmpeg demuxer: allocated %d bytes for packet buffer\n", resultBufSize);
   uint8_t *pBuf = pResultBuf;
   uint32_t bytesWritten = 0;
-  copyInt32(&pBuf, videoPackets.size(), &bytesWritten);
+  copyInt32(&pBuf, numberOfPacketsToSend, &bytesWritten);
   copyInt64(&pBuf, requestedPts, &bytesWritten);
-  for (const auto &packet : videoPackets)
+  for (auto it = itOfFirstPacketToSend; it != videoPackets.end(); ++it)
   {
+    const auto &packet = *it;
     logCallback("FFmpeg demuxer: writing data of packet with pts %lld into buffer\n", packet.m_pts);
     copyInt32(&pBuf, 0, &bytesWritten);
     copyInt64(&pBuf, packet.m_pts, &bytesWritten);

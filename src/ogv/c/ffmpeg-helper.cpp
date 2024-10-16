@@ -49,7 +49,9 @@ DemuxedPacket::~DemuxedPacket()
   }
 }
 
-PacketBuffer::PacketBuffer(int maxSize) : m_maxSize(maxSize)
+PacketBuffer::PacketBuffer(int maxSize)
+    : m_maxSize(maxSize),
+      m_sizeOfPtsQueueOfRecentlyRemovedPackets(1000)
 {
 }
 
@@ -67,6 +69,8 @@ void PacketBuffer::clear()
 {
   m_videoPackets.clear();
   m_ptsToRequest.clear();
+  m_ptsOfPacketsEverAdded.clear();
+  m_ptsOfRecentlyRemovedPackets.clear();
 }
 
 bool PacketBuffer::empty() const
@@ -83,13 +87,22 @@ void PacketBuffer::pop_front()
 {
   const int64_t ptsOfFirstPacket = m_videoPackets.front().m_pts;
   m_videoPackets.pop_front();
+  // We need to erase only the first (lowest) pts, not the pts of the packet we're popping
   m_ptsToRequest.erase(m_ptsToRequest.begin());
+  m_ptsOfRecentlyRemovedPackets.push_back(ptsOfFirstPacket);
+  if (m_ptsOfRecentlyRemovedPackets.size() > m_sizeOfPtsQueueOfRecentlyRemovedPackets)
+  {
+    const auto ptsToForgetForever = m_ptsOfRecentlyRemovedPackets.front();
+    m_ptsOfRecentlyRemovedPackets.pop_front();
+    m_ptsOfPacketsEverAdded.erase(ptsToForgetForever);
+  }
 }
 
 void PacketBuffer::emplace_back(int64_t pts, int64_t dts, uint32_t dataSize, const uint8_t *pData)
 {
   m_videoPackets.emplace_back(pts, dts, dataSize, pData);
   m_ptsToRequest.insert(pts);
+  m_ptsOfPacketsEverAdded.insert(pts);
 }
 
 int64_t PacketBuffer::getMinPts() const
@@ -105,4 +118,14 @@ std::deque<DemuxedPacket>::const_iterator PacketBuffer::begin() const
 std::deque<DemuxedPacket>::const_iterator PacketBuffer::end() const
 {
   return this->m_videoPackets.end();
+}
+
+bool PacketBuffer::hasPacketWithPts(int64_t pts) const
+{
+  return m_ptsOfPacketsEverAdded.find(pts) != m_ptsOfPacketsEverAdded.end();
+}
+
+const DemuxedPacket &PacketBuffer::front() const
+{
+  return m_videoPackets.front();
 }
