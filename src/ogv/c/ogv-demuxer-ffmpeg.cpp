@@ -590,19 +590,22 @@ extern "C" int ogv_demuxer_process(void)
   const int64_t data_available = bq_headroom(bufferQueue);
   const int64_t bytes_until_end = fileSize - bufferQueue->pos;
   // logMessage("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
-  printf("%lld\n", bufferQueue->pos);
+  printf("buffer queue position: %lld, total buffer queue memory: %lld\n", bufferQueue->pos, bufferQueueMemory);
 
   if (data_available < minBufSize && bytes_until_end > data_available)
   {
+    logMessage("FFmpeg demuxer: %lld < %lld, %lld > %lld\n", data_available, minBufSize, bytes_until_end, data_available);
     // Buffer at least 1 megabyte of data first
     if (data_available != prev_data_available)
     {
+      logMessage("FFmpeg demuxer: read something: %lld != %lld\n", data_available, prev_data_available);
       prev_data_available = data_available;
       retry_count = 0;
       return 0;
     }
     if (retry_count <= MAX_RETRY_COUNT)
     {
+      logMessage("FFmpeg demuxer: attempting retry %d < %d\n", retry_count, MAX_RETRY_COUNT);
       ++retry_count;
       return 0;
     }
@@ -666,6 +669,7 @@ extern "C" void ogv_demuxer_destroy(void)
 
 extern "C" void ogv_demuxer_flush(void)
 {
+  logMessage("FFmpeg demuxer: ogv_demuxer_flush\n");
   bq_flush(bufferQueue);
   // we may not need to handle the packet queue because this only
   // happens after seeking and nestegg handles that internally

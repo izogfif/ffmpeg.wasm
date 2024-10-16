@@ -32,6 +32,8 @@ extern void bq_append(BufferQueue *queue, const char *data, size_t len);
 extern int bq_read(BufferQueue *queue, char *data, size_t len);
 extern void bq_free(BufferQueue *queue);
 
+extern int64_t bufferQueueMemory;
+
 #ifdef __cplusplus
 }
 #endif

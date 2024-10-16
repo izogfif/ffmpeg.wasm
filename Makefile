@@ -6,8 +6,24 @@ DEV_ARGS := --progress=plain
 
 DEV_CFLAGS := --profiling
 DEV_MT_CFLAGS := $(DEV_CFLAGS) $(MT_FLAGS)
-PROD_CFLAGS := -O3 -msimd128 -mavx
-# PROD_CFLAGS := -O0 -msimd128 -mavx --profiling-funcs
+# PROD_CFLAGS := -O3 -msimd128 -mavx -sMALLOC=mimalloc
+
+# --profiling-funcs
+# PROD_CFLAGS := -msimd128 -mavx \
+# 	-O0 --profiling -g -gsource-map \
+# 	-sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2 \
+# 	-sMALLOC=emmalloc-memvalidate-verbose 
+
+# This one works
+# PROD_CFLAGS := -msimd128 -mavx \
+# 	-O0 --profiling -g -gsource-map \
+
+
+PROD_CFLAGS := -msimd128 -mavx \
+	-O0 --profiling -g -gsource-map
+
+# -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2 \
+
 PROD_MT_CFLAGS := $(PROD_CFLAGS) $(MT_FLAGS)
 
 clean:

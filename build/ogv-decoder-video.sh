@@ -43,7 +43,6 @@ CONF_FLAGS=(
   -sEXPORTED_FUNCTIONS=$(node src/ogv/js/modules/ogv-decoder-video-exports.js)
 #  -sEXPORTED_RUNTIME_METHODS=$(node src/bind/ffmpeg/export-runtime.js) # exported built-in functions
   # -lworkerfs.js
-  -sMALLOC=mimalloc
   --js-library src/ogv/js/modules/ogv-decoder-video-callbacks.js
   --pre-js src/ogv/js/modules/ogv-module-pre.js
   --post-js src/ogv/js/modules/ogv-decoder-video.js
