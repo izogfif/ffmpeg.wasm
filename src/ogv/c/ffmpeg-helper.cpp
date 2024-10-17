@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <malloc.h>
+#include <emscripten/em_asm.h>
 
 bool loggingEnabled = true;
 
@@ -156,4 +159,15 @@ bool PacketBuffer::hasPacketWithPts(int64_t pts) const
 const DemuxedPacket &PacketBuffer::front() const
 {
   return m_videoPackets.front();
+}
+
+size_t getTotalMemory() {
+  return (size_t)EM_ASM_PTR(return HEAP8.length);
+}
+
+size_t getFreeMemory() {
+  struct mallinfo i = mallinfo();
+  uintptr_t totalMemory = getTotalMemory();
+  uintptr_t dynamicTop = (uintptr_t)sbrk(0);
+  return totalMemory - dynamicTop + i.fordblks;
 }

@@ -19,6 +19,8 @@ extern "C"
   void writeInt64(uint8_t **pBuf, int64_t value_to_copy, uint32_t *pSizeCounter);
   int32_t readInt32(const char **pBuf);
   int64_t readInt64(const char **pBuf);
+  size_t getTotalMemory();
+  size_t getFreeMemory();
 
 #ifdef __cplusplus
 }
@@ -56,6 +58,7 @@ public:
   bool hasPacketWithPts(int64_t pts) const;
   const DemuxedPacket &front() const;
   void setMaxSize(int maxSize);
+
 private:
   std::deque<DemuxedPacket> m_videoPackets;
   std::set<int64_t> m_ptsToRequest;
