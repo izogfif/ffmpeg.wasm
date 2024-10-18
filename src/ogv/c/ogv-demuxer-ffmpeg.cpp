@@ -44,7 +44,7 @@ static uint8_t *avio_ctx_buffer = NULL;
 static AVIOContext *avio_ctx = NULL;
 static AVFormatContext *pFormatContext = NULL;
 static AVCodecContext *pVideoCodecContext = NULL;
-// static AVPacket *pPacket = NULL;
+static AVPacket *pPacket = NULL;
 // static struct SwsContext *pSwsContext = NULL;
 // static AVFrame *pConvertedFrame = NULL;
 static int64_t prev_data_available = 0;
@@ -265,13 +265,13 @@ static int processBegin(void)
     }
 
     // // https://ffmpeg.org/doxygen/trunk/structAVPacket.html
-    // pPacket = av_packet_alloc();
-    // if (!pPacket)
-    // {
-    //   logMessage("failed to allocate memory for AVPacket\n");
-    //   hasVideo = 0;
-    //   return 0;
-    // }
+    pPacket = av_packet_alloc();
+    if (!pPacket)
+    {
+      logMessage("failed to allocate memory for AVPacket\n");
+      hasVideo = 0;
+      return 0;
+    }
     // if (pVideoCodecParameters->format != AV_PIX_FMT_YUV420P)
     // {
     //   logMessage(
@@ -483,7 +483,6 @@ static int processDecoding(void)
   logMessage("FFmpeg demuxer: processDecoding is being called\n");
   for (;;)
   {
-    AVPacket *pPacket = NULL;
     int read_frame_res = av_read_frame(pFormatContext, pPacket);
     if (read_frame_res < 0 && read_frame_res != AVERROR_EOF)
     {
@@ -660,8 +659,8 @@ extern "C" void ogv_demuxer_destroy(void)
   //   av_frame_free(&pConvertedFrame);
   if (pFormatContext)
     avformat_close_input(&pFormatContext);
-  // if (pPacket)
-  //   av_packet_free(&pPacket);
+  if (pPacket)
+    av_packet_free(&pPacket);
   if (pVideoCodecContext)
     avcodec_free_context(&pVideoCodecContext);
   bq_free(bufferQueue);
