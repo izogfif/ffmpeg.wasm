@@ -20,7 +20,13 @@ DEV_MT_CFLAGS := $(DEV_CFLAGS) $(MT_FLAGS)
 
 
 PROD_CFLAGS := -msimd128 -mavx \
-	-O0 --profiling -g -gsource-map
+	-O0 --profiling -g -gsource-map \
+	-fsanitize=undefined \
+	
+# This enables ASAN. It doesn't work together with SAFE_HEAP 
+# and is currently causing this error:
+# streaming compile failed: CompileError: WebAssembly.instantiateStreaming(): Compiling function #3639:"ff_h264_filter_mb_fast" failed: local count too large
+# -fsanitize=address
 
 # -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2 \
 

@@ -589,8 +589,8 @@ extern "C" int ogv_demuxer_process(void)
   const int64_t data_available = bq_headroom(bufferQueue);
   const int64_t bytes_until_end = fileSize - bufferQueue->pos;
   // logMessage("FFmpeg demuxer: buffer got %lld bytes of data in it. Bytes until end: %lld, pos: %lld\n", data_available, bytes_until_end, bufferQueue->pos);
-  printf("buffer queue position: %lld, total buffer queue memory: %lld, total memory: %lld, free memory: %lld\n",
-         bufferQueue->pos, bufferQueueMemory, getTotalMemory(), getFreeMemory());
+  // printf("buffer queue position: %lld, total buffer queue memory: %lld, total memory: %lld, free memory: %lld\n",
+  //        bufferQueue->pos, bufferQueueMemory, getTotalMemory(), getFreeMemory());
 
   if (data_available < minBufSize && bytes_until_end > data_available)
   {

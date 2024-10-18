@@ -25,6 +25,10 @@ ENV EM_TOOLCHAIN_FILE=$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscript
 ENV PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$EM_PKG_CONFIG_PATH
 ENV FFMPEG_ST=$FFMPEG_ST
 ENV FFMPEG_MT=$FFMPEG_MT
+# Uncomment these three lines in order to enable detailed memory debugging
+COPY build/emmalloc.c /emsdk/upstream/emscripten/system/lib/emmalloc.c
+RUN cat /emsdk/upstream/emscripten/system/lib/emmalloc.c
+RUN rm -rf /emsdk/upstream/emscripten/cache
 RUN apt-get update && \
   apt-get install -y pkg-config autoconf automake libtool ragel build-essential meson ninja-build
 
