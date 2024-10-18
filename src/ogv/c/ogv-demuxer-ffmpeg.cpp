@@ -60,6 +60,7 @@ int64_t ptsOfLastPacketSent = -1;
 int32_t threadCount = -1;
 int32_t debugDecoder = 0;
 int32_t decodedFrameBufferSize = -1;
+int32_t perfLogs = 0;
 
 enum AppState
 {
@@ -102,13 +103,14 @@ extern "C" void ogv_demuxer_init(const char *initOptions, int len)
   int debugDemuxer = readInt32(&pBuf);
   loggingEnabled = debugDemuxer ? true : false;
   debugDecoder = readInt32(&pBuf);
+  perfLogs = readInt32(&pBuf);
   fileSize = readInt64(&pBuf);
   int packetBufferSize = readInt32(&pBuf);
   decodedFrameBufferSize = readInt32(&pBuf);
-  printf("FFmpeg demuxer: ogv_demuxer_init with thread count: %d, \
-          debugDemuxer: %d, debugDecoder: %d, file size: %lld bytes, \
+  printf("FFmpeg demuxer: initializing with thread count: %d, \
+          debugDemuxer: %d, debugDecoder: %d, perfLogs: %d, file size: %lld bytes, \
           packet buffer size: %d, decoded frame buffer size: %d.\n",
-         threadCount, debugDemuxer, debugDecoder, fileSize, packetBufferSize, decodedFrameBufferSize);
+         threadCount, debugDemuxer, debugDecoder, perfLogs, fileSize, packetBufferSize, decodedFrameBufferSize);
   appState = STATE_BEGIN;
   videoPackets.clear();
   videoPackets.setMaxSize(packetBufferSize);
@@ -294,11 +296,12 @@ static int processBegin(void)
     // }
 
     uint32_t bytesWritten = 0;
-    uint32_t allocatedSize = 4 + 4 + 4 + 8 + 32 * 4 + pVideoCodecParameters->extradata_size;
+    uint32_t allocatedSize = 4 * 4 + 8 + 32 * 4 + pVideoCodecParameters->extradata_size;
     uint8_t *const pBufStart = (uint8_t *)malloc(allocatedSize);
     uint8_t *pBuf = pBufStart;
     writeInt32(&pBuf, threadCount, &bytesWritten);
     writeInt32(&pBuf, debugDecoder, &bytesWritten);
+    writeInt32(&pBuf, perfLogs, &bytesWritten);
     writeInt32(&pBuf, decodedFrameBufferSize, &bytesWritten);
     writeInt32(&pBuf, streamTimeBase[videoStreamIndex].num, &bytesWritten);
     writeInt32(&pBuf, streamTimeBase[videoStreamIndex].den, &bytesWritten);

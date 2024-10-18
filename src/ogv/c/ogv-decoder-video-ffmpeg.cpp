@@ -43,6 +43,7 @@ std::deque<DecodedFrame> decodedFrames;
 std::deque<int64_t> requestedPts;
 bool firstEverPts = true;
 int threadCount = -1;
+int32_t perfLogs = 0;
 
 struct FFmpegRamDecoder
 {
@@ -205,6 +206,7 @@ static void do_init(const char *paramsData)
   const char *pBuf = paramsData;
   threadCount = readInt32(&pBuf);
   int32_t debugDecoder = readInt32(&pBuf);
+  perfLogs = readInt32(&pBuf);
   decodedFrameBufferSize = readInt32(&pBuf);
   loggingEnabled = debugDecoder ? true : false;
   printf("FFmpeg decoder: do_init: init params requested %d threads, debugDecoder: %d.\n", threadCount, debugDecoder);
@@ -368,13 +370,13 @@ AVFrame *getConvertedFrame(AVFrame *pDecodedFrame)
 
 static void read_input(const char *data, size_t data_len)
 {
-  double readInputStart = emscripten_get_now();
   if (!data)
   {
     // NULL data signals syncing the decoder state
     call_main_return(NULL, 1);
     return;
   }
+  double readInputStart = perfLogs ? emscripten_get_now() : 0;
 
   const char *pBuf = data;
   const int32_t packetCount = readInt32(&pBuf);
@@ -382,7 +384,7 @@ static void read_input(const char *data, size_t data_len)
   if (firstEverPts)
   {
     // This is the first frame ever requested
-    decodingStartTime = emscripten_get_now();
+    decodingStartTime = perfLogs ? emscripten_get_now() : 0;
     firstEverPts = false;
   }
   requestedPts.push_back(readInt64(&pBuf));
@@ -414,7 +416,7 @@ static void read_input(const char *data, size_t data_len)
                  pts, dts, videoPackets.size());
     }
   }
-  double readInputEnd = emscripten_get_now();
+  double readInputEnd = perfLogs ? emscripten_get_now() : 0;
   latestReadInputTime = readInputEnd - readInputStart;
   totalReadInputTime += latestReadInputTime;
 }
@@ -455,9 +457,9 @@ static bool try_processing()
   {
     logMessage("FFmpeg decoder: Current size of decoded frames buffer is %d < %d, attempting to receive a frame.\n",
                decodedFrames.size(), decodedFrameBufferSize);
-    double receiveFrameStart = emscripten_get_now();
+    double receiveFrameStart = perfLogs ? emscripten_get_now() : 0;
     int ret = avcodec_receive_frame(ffmpegRamDecoder->c_, ffmpegRamDecoder->frame_);
-    double receiveFrameEnd = emscripten_get_now();
+    double receiveFrameEnd = perfLogs ? emscripten_get_now() : 0;
     double receiveFrameTime = receiveFrameEnd - receiveFrameStart;
     totalReceiveFrameTime += receiveFrameTime;
 
@@ -497,9 +499,9 @@ static bool try_processing()
     ffmpegRamDecoder->pkt_->pts = packet.m_pts;
     ffmpegRamDecoder->pkt_->dts = packet.m_dts;
 
-    double sendPacketStart = emscripten_get_now();
+    double sendPacketStart = perfLogs ? emscripten_get_now() : 0;
     int ret = avcodec_send_packet(ffmpegRamDecoder->c_, ffmpegRamDecoder->pkt_);
-    double sendPacketEnd = emscripten_get_now();
+    double sendPacketEnd = perfLogs ? emscripten_get_now() : 0;
     double sendTime = sendPacketEnd - sendPacketStart;
     totalSendTime += sendTime;
     if (ret == AVERROR(EAGAIN))
@@ -560,12 +562,15 @@ static int process_frame_return(void *image)
     break;
   default:
   {
-    double conversionStart = emscripten_get_now();
+    double conversionStart = perfLogs ? emscripten_get_now() : 0;
     AVFrame *pConvertedFrame = getConvertedFrame(frame);
-    double conversionEnd = emscripten_get_now();
-    conversionTime = conversionEnd - conversionStart;
-    totalConversionTime += conversionTime;
-    logMessage("FFmpeg decoder: Converted frame from %d to %d in %.3f ms\n", oldFormat, pConvertedFrame->format, conversionTime);
+    if (perfLogs)
+    {
+      double conversionEnd = emscripten_get_now();
+      conversionTime = conversionEnd - conversionStart;
+      totalConversionTime += conversionTime;
+      logMessage("FFmpeg decoder: Converted frame from %d to %d in %.3f ms\n", oldFormat, pConvertedFrame->format, conversionTime);
+    }
     chromaWidth = pConvertedFrame->width >> 1;
     chromaHeight = height >> 1;
     converted = 1;
@@ -573,37 +578,40 @@ static int process_frame_return(void *image)
     frame = pConvertedFrame;
   }
   }
-  double frameDecodedTime = emscripten_get_now();
-  double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
-  double desiredTime = frame->pts * av_q2d(timeBase);
-  double lag = actualTime - desiredTime;
-  double totalWorkTime = (totalReceiveFrameTime + totalSendTime + totalConversionTime) / 1000.0;
-  double workLagTime = totalWorkTime - desiredTime;
-  // To parse this output as JavaScript, copy the output from console
-  // and the commented out lines before and after the entire output:
-  /*
-  cc = [
-  */
-  printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
-         frame->pts,
-         desiredTime,
-         actualTime,
-         lag,
-         totalWorkTime,
-         unreceivedPackets,
-         conversionTime,
-         totalReceiveFrameTime,
-         totalSendTime,
-         totalConversionTime,
-         workLagTime,
-         latestReadInputTime,
-         totalReadInputTime,
-         (int)videoPackets.size(),
-         (int)decodedFrames.size());
-  /*
-    ];
-    console.log(cc.map(x => x.join('\t')).join('\n'));
-  */
+  if (perfLogs)
+  {
+    double frameDecodedTime = emscripten_get_now();
+    double actualTime = (frameDecodedTime - decodingStartTime) / 1000.0;
+    double desiredTime = frame->pts * av_q2d(timeBase);
+    double lag = actualTime - desiredTime;
+    double totalWorkTime = (totalReceiveFrameTime + totalSendTime + totalConversionTime) / 1000.0;
+    double workLagTime = totalWorkTime - desiredTime;
+    // To parse this output as JavaScript, copy the output from console
+    // and the commented out lines before and after the entire output:
+    /*
+    cc = [
+    */
+    printf("[%lld, %.3f, %.3f, %.3f, %.3f, %d, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %.3f, %d, %d],\n",
+           frame->pts,
+           desiredTime,
+           actualTime,
+           lag,
+           totalWorkTime,
+           unreceivedPackets,
+           conversionTime,
+           totalReceiveFrameTime,
+           totalSendTime,
+           totalConversionTime,
+           workLagTime,
+           latestReadInputTime,
+           totalReadInputTime,
+           (int)videoPackets.size(),
+           (int)decodedFrames.size());
+    /*
+      ];
+      console.log(cc.map(x => x.join('\t')).join('\n'));
+    */
+  }
   ogvjs_callback_frame(frame->data[0], frame->linesize[0],
                        frame->data[1], frame->linesize[1],
                        frame->data[2], frame->linesize[2],

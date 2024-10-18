@@ -150,6 +150,7 @@ Module["init"] = function (
   packetBufferSize,
   decodedFrameBufferSize,
   fileSize,
+  perfLogs,
 ) {
   time(function () {
     let fileName = '';
@@ -163,13 +164,14 @@ Module["init"] = function (
     // }
     // var urlBytes = new TextEncoder().encode(fileName);
     // var len = 4 + 8 + urlBytes.byteLength;
-    var len = 4 * 5 + 8;
+    var len = 4 * 6 + 8;
     var buffer = reallocInputBuffer(len);
     var dest = new Uint8Array(wasmMemory.buffer, buffer, len);
     let posInArray = 0;
     posInArray += writeInt32(threadCount, dest, posInArray);
     posInArray += writeInt32(debugDemuxer ? 1 : 0, dest, posInArray);
     posInArray += writeInt32(debugDecoder ? 1 : 0, dest, posInArray);
+    posInArray += writeInt32(perfLogs ? 1 : 0, dest, posInArray);
     posInArray += writeInt64(fileSize, dest, posInArray);
     posInArray += writeInt32(packetBufferSize, dest, posInArray);
     posInArray += writeInt32(decodedFrameBufferSize, dest, posInArray);
