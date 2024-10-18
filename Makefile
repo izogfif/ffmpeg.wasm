@@ -6,7 +6,7 @@ DEV_ARGS := --progress=plain
 
 DEV_CFLAGS := --profiling
 DEV_MT_CFLAGS := $(DEV_CFLAGS) $(MT_FLAGS)
-# PROD_CFLAGS := -O3 -msimd128 -mavx -sMALLOC=mimalloc
+PROD_CFLAGS := -O3 -msimd128 -mavx
 
 # --profiling-funcs
 # PROD_CFLAGS := -msimd128 -mavx \
@@ -17,11 +17,7 @@ DEV_MT_CFLAGS := $(DEV_CFLAGS) $(MT_FLAGS)
 # This one works
 # PROD_CFLAGS := -msimd128 -mavx \
 # 	-O0 --profiling -g -gsource-map \
-
-
-PROD_CFLAGS := -msimd128 -mavx \
-	-O0 --profiling -g -gsource-map \
-	-fsanitize=undefined \
+# 	-fsanitize=undefined \
 	
 # This enables ASAN. It doesn't work together with SAFE_HEAP 
 # and is currently causing this error:
