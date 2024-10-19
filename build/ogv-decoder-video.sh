@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-EXPORT_NAME="OGVDecoderVideoTheora"
+EXPORT_NAME="OGVDecoderVideoFfmpeg"
 
 CONF_FLAGS=(
   -I. 

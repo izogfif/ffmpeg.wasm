@@ -379,7 +379,7 @@ static int processBegin(void)
   appState = STATE_DECODING;
   ogvjs_callback_loaded_metadata(
       // Always return "theora" to load modified theora video decoder that's currently in pass-through mode
-      videoCodecName ? "theora" : NULL,
+      videoCodecName ? "ffmpeg" : NULL,
       // audioCodecName temporarily disabled
       NULL);
 

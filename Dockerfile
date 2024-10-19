@@ -258,7 +258,7 @@ ENV FFMPEG_LIBS \
 # -laom
 RUN mkdir -p /src/dist/umd && bash -x /src/build.sh \
   ${FFMPEG_LIBS} \
-  -o dist/umd/ogv-decoder-video-theora.js
+  -o dist/umd/ogv-decoder-video-ffmpeg.js
 
 
 # Export ffmpeg-core.wasm to dist/, use `docker buildx build -o . .` to get assets
